@@ -184,6 +184,11 @@ const TODAY = new Date().toDateString();
           先加一个任务试试。数据会保存在本地浏览器（localStorage）。
         </div>
       )}
+    <div style={{ marginTop: 24, fontSize: 12, opacity: 0.7 }}>
+      v0.1 · LifeUP MVP · 反馈：在评论/私信告诉我你想要的功能
+    </div>
+
+
     </main>
   );
 }
