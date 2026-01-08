@@ -2,26 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-const TASKS_KEY = "lifeup.tasks.v1";
-const CHECKIN_KEY = "lifeup.checkin.v1";
+/** ============ localStorage keys ============ */
+const TASKS_KEY = "lifeup.tasks.v2";
+const WALLET_KEY = "lifeup.wallet.v1";
+const LEDGER_KEY = "lifeup.ledger.v1";
+const CLAIMS_KEY = "lifeup.claims.v1";
+const DAILY_KEY = "lifeup.daily.v1";
 
-function getLocalDateKey(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function localMidnightFromKey(dateKey) {
-  const [y, m, d] = dateKey.split("-").map((x) => Number(x));
-  return new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0);
-}
-
-function diffDays(dateKey1, dateKey2) {
-  const t1 = localMidnightFromKey(dateKey1).getTime();
-  const t2 = localMidnightFromKey(dateKey2).getTime();
-  const msPerDay = 24 * 60 * 60 * 1000;
-  return Math.round((t2 - t1) / msPerDay);
+/** ============ utils ============ */
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 
 function safeLoad(key, fallback) {
@@ -37,47 +28,32 @@ function safeLoad(key, fallback) {
 function safeSave(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
+/** ============ main ============ */
 export default function Page() {
-  const todayKey = useMemo(() => getLocalDateKey(), []);
   const [hydrated, setHydrated] = useState(false);
 
   const [tasks, setTasks] = useState([]);
   const [title, setTitle] = useState("");
 
-  const [checkin, setCheckin] = useState({
-    lastDateKey: null,
-    streak: 0,
-  });
+  const [wallet, setWallet] = useState({ coins: 0 });
+  const [ledger, setLedger] = useState([]);
+  const [claims, setClaims] = useState([]);
+  const [daily, setDaily] = useState({ date: "", bonusGiven: false });
 
-  // 读取本地数据
+  /** ===== load ===== */
   useEffect(() => {
-    const loadedTasks = safeLoad(TASKS_KEY, []);
-    const normalizedTasks = Array.isArray(loadedTasks)
-      ? loadedTasks
-          .filter((x) => x && typeof x.title === "string")
-          .map((x) => ({
-            id: typeof x.id === "string" ? x.id : crypto.randomUUID(),
-            title: x.title,
-            done: Boolean(x.done),
-          }))
-      : [];
-    setTasks(normalizedTasks);
-
-    const loadedCheckin = safeLoad(CHECKIN_KEY, {});
-    setCheckin({
-      lastDateKey: typeof loadedCheckin.lastDateKey === "string" ? loadedCheckin.lastDateKey : null,
-      streak: Number.isFinite(loadedCheckin.streak) ? Math.max(0, Number(loadedCheckin.streak)) : 0,
-    });
-
+    setTasks(safeLoad(TASKS_KEY, []));
+    setWallet(safeLoad(WALLET_KEY, { coins: 0 }));
+    setLedger(safeLoad(LEDGER_KEY, []));
+    setClaims(safeLoad(CLAIMS_KEY, []));
+    setDaily(safeLoad(DAILY_KEY, { date: "", bonusGiven: false }));
     setHydrated(true);
   }, []);
 
-  // 写入本地数据
+  /** ===== save ===== */
   useEffect(() => {
     if (!hydrated) return;
     safeSave(TASKS_KEY, tasks);
@@ -85,153 +61,181 @@ export default function Page() {
 
   useEffect(() => {
     if (!hydrated) return;
-    safeSave(CHECKIN_KEY, checkin);
-  }, [checkin, hydrated]);
+    safeSave(WALLET_KEY, wallet);
+    safeSave(LEDGER_KEY, ledger);
+    safeSave(CLAIMS_KEY, claims);
+    safeSave(DAILY_KEY, daily);
+  }, [wallet, ledger, claims, daily, hydrated]);
 
-  const checkedInToday = hydrated && checkin.lastDateKey === todayKey;
-
-  function doCheckin() {
-    if (!hydrated) return;
-    if (checkin.lastDateKey === todayKey) return;
-
-    let nextStreak = 1;
-
-    if (checkin.lastDateKey) {
-      const delta = diffDays(checkin.lastDateKey, todayKey);
-      nextStreak = delta === 1 ? checkin.streak + 1 : 1;
-    }
-
-    setCheckin({
-      lastDateKey: todayKey,
-      streak: nextStreak,
-    });
+  /** ===== helpers ===== */
+  function earn(amount, reason) {
+    setWallet((w) => ({ coins: w.coins + amount }));
+    setLedger((l) => [
+      {
+        id: crypto.randomUUID(),
+        type: "earn",
+        amount,
+        reason,
+        at: Date.now(),
+      },
+      ...l,
+    ]);
   }
 
-  const points = useMemo(() => {
-    const taskPoints = tasks.filter((t) => t.done).length * 10;
-    const checkinPoints = checkedInToday ? 5 : 0;
-    return taskPoints + checkinPoints;
-  }, [tasks, checkedInToday]);
+  function spend(amount, reason) {
+    if (wallet.coins < amount) return false;
+    setWallet((w) => ({ coins: w.coins - amount }));
+    setLedger((l) => [
+      {
+        id: crypto.randomUUID(),
+        type: "spend",
+        amount,
+        reason,
+        at: Date.now(),
+      },
+      ...l,
+    ]);
+    return true;
+  }
 
+  /** ===== tasks ===== */
   function addTask() {
     const t = title.trim();
     if (!t) return;
-    setTasks((prev) => [{ id: crypto.randomUUID(), title: t, done: false }, ...prev]);
+    setTasks((prev) => [
+      {
+        id: crypto.randomUUID(),
+        title: t,
+        status: "todo",
+        difficulty: "M",
+        estMinutes: 10,
+      },
+      ...prev,
+    ]);
     setTitle("");
   }
 
-  function toggleTask(id) {
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+  function completeTask(id) {
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, status: "done" } : t))
+    );
+
+    // 完成奖励（完成给多）
+    earn(6, "complete_task");
+
+    // 每日首次完成任务 +2
+    const today = todayKey();
+    if (daily.date !== today || !daily.bonusGiven) {
+      earn(2, "daily_first_complete");
+      setDaily({ date: today, bonusGiven: true });
+    }
   }
 
-  function removeTask(id) {
-    setTasks((prev) => prev.filter((t) => t.id !== id));
+  /** ===== shop ===== */
+  function redeem(name, cost) {
+    if (!spend(cost, "redeem")) return;
+    setClaims((c) => [
+      {
+        id: crypto.randomUUID(),
+        name,
+        used: false,
+        from: "shop",
+      },
+      ...c,
+    ]);
   }
 
+  /** ===== gacha ===== */
+  function drawGacha() {
+    if (!spend(10, "gacha")) return;
+
+    const r = Math.random();
+    let reward = "休息10分钟券";
+    if (r > 0.95) reward = "美甲基金券";
+    else if (r > 0.7) reward = "奶茶券";
+
+    setClaims((c) => [
+      {
+        id: crypto.randomUUID(),
+        name: reward,
+        used: false,
+        from: "gacha",
+      },
+      ...c,
+    ]);
+  }
+
+  /** ===== ui ===== */
   return (
-    <main style={{ maxWidth: 760, margin: "40px auto", padding: 16, fontFamily: "system-ui" }}>
-      <div style={{ opacity: 0.7, marginBottom: 12 }}>今天目标：完成 3 个任务</div>
+    <main style={{ maxWidth: 760, margin: "40px auto", padding: 16 }}>
+      <h1 style={{ fontSize: 28 }}>LifeUP · SE 系统</h1>
 
-      <h1 style={{ fontSize: 28, marginBottom: 6 }}>LifeUP（MVP）</h1>
-
-      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
-        <button
-          onClick={doCheckin}
-          disabled={!hydrated || checkedInToday}
-          style={{
-            padding: "6px 12px",
-            borderRadius: 8,
-            border: "1px solid #111",
-            background: checkedInToday ? "#eee" : "#111",
-            color: checkedInToday ? "#666" : "#fff",
-            cursor: checkedInToday ? "not-allowed" : "pointer",
-          }}
-        >
-          {checkedInToday ? "今日已签到" : "签到 +5"}
-        </button>
-
-        <div style={{ opacity: 0.8 }}>
-          连续 {hydrated ? checkin.streak : "—"} 天
-          <span style={{ marginLeft: 10, opacity: 0.7, fontSize: 12 }}>（今天：{todayKey}）</span>
-        </div>
+      <div style={{ margin: "12px 0" }}>
+        💰 金币：<b>{wallet.coins}</b>
       </div>
 
-      <div style={{ marginBottom: 16, opacity: 0.85 }}>
-        积分：<b>{points}</b>（完成一个任务 +10；今日签到 +5）
-      </div>
-
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+      {/* add task */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="输入一个任务，比如：背10个单词"
-          style={{ flex: 1, padding: 10, border: "1px solid #ddd", borderRadius: 10 }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") addTask();
-          }}
+          placeholder="输入一个任务"
+          style={{ flex: 1, padding: 10 }}
+          onKeyDown={(e) => e.key === "Enter" && addTask()}
         />
-        <button
-          onClick={addTask}
-          style={{
-            padding: "10px 14px",
-            borderRadius: 10,
-            border: "1px solid #111",
-            background: "#111",
-            color: "#fff",
-            cursor: "pointer",
-          }}
-        >
-          新增
-        </button>
+        <button onClick={addTask}>新增</button>
       </div>
 
-      <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}>
+      {/* tasks */}
+      <ul style={{ listStyle: "none", padding: 0 }}>
         {tasks.map((t) => (
           <li
             key={t.id}
             style={{
+              padding: 10,
               border: "1px solid #eee",
-              borderRadius: 14,
-              padding: 12,
+              borderRadius: 10,
+              marginBottom: 8,
               display: "flex",
-              alignItems: "center",
-              gap: 10,
+              justifyContent: "space-between",
             }}
           >
-            <input type="checkbox" checked={t.done} onChange={() => toggleTask(t.id)} />
-            <div
+            <span
               style={{
-                flex: 1,
-                textDecoration: t.done ? "line-through" : "none",
-                opacity: t.done ? 0.6 : 1,
+                textDecoration: t.status === "done" ? "line-through" : "none",
+                opacity: t.status === "done" ? 0.6 : 1,
               }}
             >
               {t.title}
-            </div>
-            <button
-              onClick={() => removeTask(t.id)}
-              style={{
-                border: "1px solid #ddd",
-                background: "transparent",
-                padding: "6px 10px",
-                borderRadius: 10,
-                cursor: "pointer",
-              }}
-            >
-              删除
-            </button>
+            </span>
+            {t.status !== "done" && (
+              <button onClick={() => completeTask(t.id)}>完成</button>
+            )}
           </li>
         ))}
       </ul>
 
-      {tasks.length === 0 && (
-        <div style={{ marginTop: 16, opacity: 0.7 }}>
-          先加一个任务试试。数据会保存在本地浏览器（localStorage）。
-        </div>
-      )}
+      {/* shop */}
+      <h3>🛒 商店</h3>
+      <button onClick={() => redeem("休息30分钟券", 15)}>
+        休息30分钟 · 15
+      </button>{" "}
+      <button onClick={() => redeem("奶茶券", 25)}>奶茶券 · 25</button>
 
-      <div style={{ marginTop: 24, fontSize: 12, opacity: 0.7 }}>
-        v0.2 · LifeUP MVP · 数据：localStorage（无登录 / 无数据库）
+      {/* gacha */}
+      <h3 style={{ marginTop: 16 }}>🎰 抽奖</h3>
+      <button onClick={drawGacha}>10 金币 抽一次</button>
+
+      {/* claims */}
+      <h3 style={{ marginTop: 16 }}>🎁 我的奖励</h3>
+      {claims.map((c) => (
+        <div key={c.id} style={{ opacity: c.used ? 0.5 : 1 }}>
+          {c.name}（{c.from}）
+        </div>
+      ))}
+
+      <div style={{ marginTop: 24, fontSize: 12, opacity: 0.6 }}>
+        v0.3 · LifeUP SE · localStorage · 无登录
       </div>
     </main>
   );
