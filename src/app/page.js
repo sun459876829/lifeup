@@ -1,242 +1,59 @@
-"use client";
-
-import { useEffect, useMemo, useState } from "react";
-
-/** ============ localStorage keys ============ */
-const TASKS_KEY = "lifeup.tasks.v2";
-const WALLET_KEY = "lifeup.wallet.v1";
-const LEDGER_KEY = "lifeup.ledger.v1";
-const CLAIMS_KEY = "lifeup.claims.v1";
-const DAILY_KEY = "lifeup.daily.v1";
-
-/** ============ utils ============ */
-function todayKey() {
-  const d = new Date();
-  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-}
-
-function safeLoad(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw);
-  } catch {
-    return fallback;
-  }
-}
-
-function safeSave(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {}
-}
-
-/** ============ main ============ */
-export default function Page() {
-  const [hydrated, setHydrated] = useState(false);
-
-  const [tasks, setTasks] = useState([]);
-  const [title, setTitle] = useState("");
-
-  const [wallet, setWallet] = useState({ coins: 0 });
-  const [ledger, setLedger] = useState([]);
-  const [claims, setClaims] = useState([]);
-  const [daily, setDaily] = useState({ date: "", bonusGiven: false });
-
-  /** ===== load ===== */
-  useEffect(() => {
-    setTasks(safeLoad(TASKS_KEY, []));
-    setWallet(safeLoad(WALLET_KEY, { coins: 0 }));
-    setLedger(safeLoad(LEDGER_KEY, []));
-    setClaims(safeLoad(CLAIMS_KEY, []));
-    setDaily(safeLoad(DAILY_KEY, { date: "", bonusGiven: false }));
-    setHydrated(true);
-  }, []);
-
-  /** ===== save ===== */
-  useEffect(() => {
-    if (!hydrated) return;
-    safeSave(TASKS_KEY, tasks);
-  }, [tasks, hydrated]);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    safeSave(WALLET_KEY, wallet);
-    safeSave(LEDGER_KEY, ledger);
-    safeSave(CLAIMS_KEY, claims);
-    safeSave(DAILY_KEY, daily);
-  }, [wallet, ledger, claims, daily, hydrated]);
-
-  /** ===== helpers ===== */
-  function earn(amount, reason) {
-    setWallet((w) => ({ coins: w.coins + amount }));
-    setLedger((l) => [
-      {
-        id: crypto.randomUUID(),
-        type: "earn",
-        amount,
-        reason,
-        at: Date.now(),
-      },
-      ...l,
-    ]);
-  }
-
-  function spend(amount, reason) {
-    if (wallet.coins < amount) return false;
-    setWallet((w) => ({ coins: w.coins - amount }));
-    setLedger((l) => [
-      {
-        id: crypto.randomUUID(),
-        type: "spend",
-        amount,
-        reason,
-        at: Date.now(),
-      },
-      ...l,
-    ]);
-    return true;
-  }
-
-  /** ===== tasks ===== */
-  function addTask() {
-    const t = title.trim();
-    if (!t) return;
-    setTasks((prev) => [
-      {
-        id: crypto.randomUUID(),
-        title: t,
-        status: "todo",
-        difficulty: "M",
-        estMinutes: 10,
-      },
-      ...prev,
-    ]);
-    setTitle("");
-  }
-
-  function completeTask(id) {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, status: "done" } : t))
-    );
-
-    // 完成奖励（完成给多）
-    earn(6, "complete_task");
-
-    // 每日首次完成任务 +2
-    const today = todayKey();
-    if (daily.date !== today || !daily.bonusGiven) {
-      earn(2, "daily_first_complete");
-      setDaily({ date: today, bonusGiven: true });
-    }
-  }
-
-  /** ===== shop ===== */
-  function redeem(name, cost) {
-    if (!spend(cost, "redeem")) return;
-    setClaims((c) => [
-      {
-        id: crypto.randomUUID(),
-        name,
-        used: false,
-        from: "shop",
-      },
-      ...c,
-    ]);
-  }
-
-  /** ===== gacha ===== */
-  function drawGacha() {
-    if (!spend(10, "gacha")) return;
-
-    const r = Math.random();
-    let reward = "休息10分钟券";
-    if (r > 0.95) reward = "美甲基金券";
-    else if (r > 0.7) reward = "奶茶券";
-
-    setClaims((c) => [
-      {
-        id: crypto.randomUUID(),
-        name: reward,
-        used: false,
-        from: "gacha",
-      },
-      ...c,
-    ]);
-  }
-
-  /** ===== ui ===== */
+export default function Home() {
   return (
-    <main style={{ maxWidth: 760, margin: "40px auto", padding: 16 }}>
-      <h1 style={{ fontSize: 28 }}>LifeUP · SE 系统</h1>
-
-      <div style={{ margin: "12px 0" }}>
-        💰 金币：<b>{wallet.coins}</b>
+    <section className="space-y-10">
+      <div className="space-y-3">
+        <p className="text-sm uppercase tracking-[0.3em] text-violet-300/80">
+          魔法主页 · Dashboard
+        </p>
+        <h1 className="text-3xl font-semibold text-white">魔法世界总览</h1>
+        <p className="max-w-2xl text-sm text-slate-300">
+          欢迎回到你的魔法世界。这里是你的人生 RPG 仪表盘，记录修行进度、每日使命与神秘收藏。
+        </p>
       </div>
 
-      {/* add task */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="输入一个任务"
-          style={{ flex: 1, padding: 10 }}
-          onKeyDown={(e) => e.key === "Enter" && addTask()}
-        />
-        <button onClick={addTask}>新增</button>
-      </div>
-
-      {/* tasks */}
-      <ul style={{ listStyle: "none", padding: 0 }}>
-        {tasks.map((t) => (
-          <li
-            key={t.id}
-            style={{
-              padding: 10,
-              border: "1px solid #eee",
-              borderRadius: 10,
-              marginBottom: 8,
-              display: "flex",
-              justifyContent: "space-between",
-            }}
-          >
-            <span
-              style={{
-                textDecoration: t.status === "done" ? "line-through" : "none",
-                opacity: t.status === "done" ? 0.6 : 1,
-              }}
-            >
-              {t.title}
-            </span>
-            {t.status !== "done" && (
-              <button onClick={() => completeTask(t.id)}>完成</button>
-            )}
-          </li>
-        ))}
-      </ul>
-
-      {/* shop */}
-      <h3>🛒 商店</h3>
-      <button onClick={() => redeem("休息30分钟券", 15)}>
-        休息30分钟 · 15
-      </button>{" "}
-      <button onClick={() => redeem("奶茶券", 25)}>奶茶券 · 25</button>
-
-      {/* gacha */}
-      <h3 style={{ marginTop: 16 }}>🎰 抽奖</h3>
-      <button onClick={drawGacha}>10 金币 抽一次</button>
-
-      {/* claims */}
-      <h3 style={{ marginTop: 16 }}>🎁 我的奖励</h3>
-      {claims.map((c) => (
-        <div key={c.id} style={{ opacity: c.used ? 0.5 : 1 }}>
-          {c.name}（{c.from}）
+      <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-6 shadow-lg shadow-violet-500/10">
+          <h2 className="text-lg font-semibold text-violet-100">等级与金币</h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4">
+              <p className="text-xs uppercase tracking-wider text-slate-400">
+                当前等级
+              </p>
+              <p className="mt-2 text-3xl font-semibold text-white">Lv. 07</p>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800">
+                <div className="h-full w-2/3 rounded-full bg-violet-500" />
+              </div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-slate-900/60 p-4">
+              <p className="text-xs uppercase tracking-wider text-slate-400">
+                魔法金币
+              </p>
+              <p className="mt-2 text-3xl font-semibold text-white">1,280</p>
+              <p className="mt-2 text-xs text-slate-400">
+                今日可获得：+240
+              </p>
+            </div>
+          </div>
         </div>
-      ))}
 
-      <div style={{ marginTop: 24, fontSize: 12, opacity: 0.6 }}>
-        v0.3 · LifeUP SE · localStorage · 无登录
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+          <h2 className="text-lg font-semibold text-violet-100">魔法纪要</h2>
+          <ul className="mt-4 space-y-3 text-sm text-slate-300">
+            <li className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-violet-400" />
+              今日主线任务已开启，等待你踏上冒险。
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-sky-400" />
+              魔法能量恢复中，建议安排一场休息仪式。
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-emerald-400" />
+              本周宝石收集度达成 60%。
+            </li>
+          </ul>
+        </div>
       </div>
-    </main>
+    </section>
   );
 }
