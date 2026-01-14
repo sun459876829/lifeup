@@ -35,6 +35,41 @@ export const ACHIEVEMENTS_CONFIG = [
     },
   },
   {
+    key: "burst_course_5",
+    name: "爆发学徒",
+    description: "单日课程任务完成 ≥ 5 次",
+    target: 5,
+    type: "burst_course_daily",
+    reward: {
+      coins: 50,
+      stats: { sanity: 6 },
+    },
+  },
+  {
+    key: "burst_course_10",
+    name: "超频学者",
+    description: "单日课程任务完成 ≥ 10 次",
+    target: 10,
+    type: "burst_course_daily",
+    reward: {
+      coins: 90,
+      stats: { sanity: 10 },
+      claimName: "🎓 超频学者徽章券",
+    },
+  },
+  {
+    key: "burst_total_20",
+    name: "荒野狂热者",
+    description: "单日完成任务总数 ≥ 20",
+    target: 20,
+    type: "burst_total_daily",
+    reward: {
+      coins: 120,
+      stats: { sanity: 12 },
+      claimName: "🔥 荒野狂热者徽章券",
+    },
+  },
+  {
     key: "no_junk_food_3",
     name: "暴食怪克星 Lv1",
     description: "拒绝垃圾食品 3 次",
