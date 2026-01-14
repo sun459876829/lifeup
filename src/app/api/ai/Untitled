@@ -1,0 +1,142 @@
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+export async function POST(req) {
+  try {
+    const body = await req.json();
+    const { type, payload } = body;
+
+    // 根据不同 type 做不同能力：拆解任务 / 难度评估 / 生成灵感
+    if (type === "splitTask") {
+      const { taskText } = payload;
+
+      const completion = await client.responses.create({
+        model: "gpt-4.1-mini",
+        input: [
+          {
+            role: "system",
+            content:
+              "你是一个帮 ADHD 用户拆任务的教练。所有任务要拆成非常小的颗粒，每个子任务控制在 5-20 分钟能完成，越具体越好。",
+          },
+          {
+            role: "user",
+            content: `请把这个任务拆成 3-7 个非常具体的小步骤，只返回 JSON 数组，例如 ["xxx","yyy"]：\n${taskText}`,
+          },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "Steps",
+            schema: {
+              type: "object",
+              properties: {
+                steps: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+              },
+              required: ["steps"],
+            },
+          },
+        },
+      });
+
+      const data = completion.output[0].content[0].json;
+      return new Response(JSON.stringify({ ok: true, data }), {
+        status: 200,
+      });
+    }
+
+    if (type === "estimateDifficulty") {
+      const { taskText } = payload;
+
+      const completion = await client.responses.create({
+        model: "gpt-4.1-mini",
+        input: [
+          {
+            role: "system",
+            content:
+              "你是一个帮用户评估任务难度的助手。输出难度等级和推荐金币奖励。",
+          },
+          {
+            role: "user",
+            content: `请根据这个任务的预估难度，给出以下 JSON：{ "difficulty": "easy|medium|hard|nightmare", "reward": number, "label": "中文难度说明" }。任务内容：${taskText}`,
+          },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "Difficulty",
+            schema: {
+              type: "object",
+              properties: {
+                difficulty: { type: "string" },
+                reward: { type: "number" },
+                label: { type: "string" },
+              },
+              required: ["difficulty", "reward", "label"],
+            },
+          },
+        },
+      });
+
+      const data = completion.output[0].content[0].json;
+      return new Response(JSON.stringify({ ok: true, data }), {
+        status: 200,
+      });
+    }
+
+    if (type === "ideaTasks") {
+      const { context, energy } = payload;
+
+      const completion = await client.responses.create({
+        model: "gpt-4.1-mini",
+        input: [
+          {
+            role: "system",
+            content:
+              "你是一个帮用户设计游戏化人生任务的助手。用户有 ADHD，需要任务非常小、可执行、不吓人。",
+          },
+          {
+            role: "user",
+            content: `请基于这些长期项目，生成 5-10 个非常小、3-10 分钟可完成的任务。每个任务一句话。用 JSON 数组返回，例如 ["xxx","yyy"]。\n长期项目：${context}\n当前精力水平：${energy}`,
+          },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "IdeaTasks",
+            schema: {
+              type: "object",
+              properties: {
+                tasks: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+              },
+              required: ["tasks"],
+            },
+          },
+        },
+      });
+
+      const data = completion.output[0].content[0].json;
+      return new Response(JSON.stringify({ ok: true, data }), {
+        status: 200,
+      });
+    }
+
+    return new Response(JSON.stringify({ ok: false, error: "unknown type" }), {
+      status: 400,
+    });
+  } catch (e) {
+    console.error(e);
+    return new Response(
+      JSON.stringify({ ok: false, error: e.message || "error" }),
+      { status: 500 }
+    );
+  }
+}
