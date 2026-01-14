@@ -109,7 +109,9 @@ function migrateLegacyState(raw) {
         exp: task.rewardXp || task.exp || 5,
         coinsReward: task.rewardCoins || task.coinsReward || 0,
         effect: task.effect || undefined,
+        // 冷却逻辑已废弃，不再在完成任务时做限制，仅保留字段兼容老数据
         cooldownMinutes: task.cooldownMinutes || undefined,
+        // 冷却逻辑已废弃，不再在完成任务时做限制，仅保留字段兼容老数据
         lastCompletedAt: task.lastCompletedAt || undefined,
       };
     });
@@ -575,7 +577,9 @@ export function WorldProvider({ children }) {
       exp: taskInput.exp || 0,
       coinsReward: taskInput.coinsReward || 0,
       effect: taskInput.effect,
+      // 冷却逻辑已废弃，不再在完成任务时做限制，仅保留字段兼容老数据
       cooldownMinutes: taskInput.cooldownMinutes,
+      // 冷却逻辑已废弃，不再在完成任务时做限制，仅保留字段兼容老数据
       lastCompletedAt: taskInput.lastCompletedAt,
       prerequisites: taskInput.prerequisites || [],
       requirements: taskInput.requirements || {},
@@ -597,13 +601,6 @@ export function WorldProvider({ children }) {
     if (!task) return { ok: false, message: "找不到任务" };
     if (!task.isRepeatable && task.status === "done") {
       return { ok: false, message: "任务已完成" };
-    }
-
-    if (task.cooldownMinutes && task.lastCompletedAt) {
-      const nextAvailable = task.lastCompletedAt + task.cooldownMinutes * 60 * 1000;
-      if (Date.now() < nextAvailable) {
-        return { ok: false, message: "任务冷却中，稍后再试" };
-      }
     }
 
     if (task.requirements) {
