@@ -14,7 +14,7 @@ function formatEffect(effect = {}) {
 }
 
 export default function TasksPage() {
-  const { hydrated, tasks, stats, achievements, registerTask, completeTask } = useWorld();
+  const { hydrated, tasks, stats, achievements, registerTask, completeTask, burst } = useWorld();
   const [message, setMessage] = useState("");
 
   const groupedTemplates = useMemo(() => {
@@ -44,7 +44,8 @@ export default function TasksPage() {
       setTimeout(() => setMessage(""), 3000);
       return;
     }
-    setMessage(`✨ 完成任务，获得 ${result.rewardCoins}🪙 + ${result.rewardExp} EXP`);
+    const burstMessage = result.burstMessage ? `\n${result.burstMessage}` : "";
+    setMessage(`✨ 完成任务，获得 ${result.rewardCoins}🪙 + ${result.rewardExp} EXP${burstMessage}`);
     setTimeout(() => setMessage(""), 3000);
   }
 
@@ -84,6 +85,8 @@ export default function TasksPage() {
 
   const todoTasks = tasks.filter((task) => task.status === "todo");
   const doneTasks = tasks.filter((task) => task.status === "done");
+  const courseStreak = burst?.byCategory?.course || 0;
+  const totalBurst = burst?.totalToday || 0;
 
   return (
     <div className="space-y-6">
@@ -97,10 +100,25 @@ export default function TasksPage() {
       </header>
 
       {message && (
-        <div className="rounded-lg bg-violet-500/20 border border-violet-500/40 p-3 text-sm text-violet-100">
+        <div className="rounded-lg bg-violet-500/20 border border-violet-500/40 p-3 text-sm text-violet-100 whitespace-pre-line">
           {message}
         </div>
       )}
+
+      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-3">
+        <h2 className="text-sm font-medium text-slate-100">🔥 今日爆发进度</h2>
+        <div className="grid gap-3 md:grid-cols-2 text-sm text-slate-300">
+          <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
+            今日课程连击：<span className="text-emerald-300 font-semibold">{courseStreak}</span> 次
+          </div>
+          <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
+            今日总完成任务数：<span className="text-emerald-300 font-semibold">{totalBurst}</span>
+          </div>
+        </div>
+        <p className="text-xs text-slate-500">
+          连击越高奖励越多，课程与成长类任务会触发额外 EXP / 精神奖励。
+        </p>
+      </section>
 
       <section className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-4">
         <h2 className="text-sm font-medium text-slate-100">🧾 可领取任务</h2>

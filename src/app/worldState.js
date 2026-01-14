@@ -20,6 +20,21 @@ const DEFAULT_WORLD = {
   randomEvent: null,
 };
 
+function getTodayKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function createDefaultBurst(dayKey = getTodayKey()) {
+  return {
+    dayKey,
+    totalToday: 0,
+    byCategory: {},
+  };
+}
+
 function newId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -61,6 +76,7 @@ function createDefaultState() {
     stats: { ...DEFAULT_STATS },
     world: { ...DEFAULT_WORLD },
     currency: { coins: 0 },
+    burst: createDefaultBurst(),
     tasks: [],
     completedTasks: [],
     treasureMaps: [],
@@ -153,6 +169,7 @@ function migrateLegacyState(raw) {
     tasks,
     completedTasks,
     treasureMaps,
+    burst: createDefaultBurst(),
   };
 }
 
@@ -169,6 +186,13 @@ function loadState() {
         stats: { ...DEFAULT_STATS, ...(parsed.stats || {}) },
         world: { ...DEFAULT_WORLD, ...(parsed.world || {}) },
         currency: { coins: parsed.currency?.coins ?? 0 },
+        burst: {
+          ...createDefaultBurst(),
+          ...(parsed.burst || {}),
+          dayKey: parsed.burst?.dayKey || getTodayKey(),
+          totalToday: parsed.burst?.totalToday ?? 0,
+          byCategory: parsed.burst?.byCategory || {},
+        },
         tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
         completedTasks: Array.isArray(parsed.completedTasks) ? parsed.completedTasks : [],
         treasureMaps: Array.isArray(parsed.treasureMaps)
@@ -223,6 +247,41 @@ function calculateRewardModifier(randomEvent, taskCategory) {
     : { expMultiplier: 1, coinMultiplier: 1, expBonus: 0 };
 }
 
+const GROWTH_CATEGORIES = new Set(["life", "english", "future"]);
+
+function computeBurstBonus({ category, categoryCount, totalToday }) {
+  let bonusExp = 0;
+  let bonusCoins = 0;
+  let bonusStats = {};
+  const messages = [];
+
+  if (category === "course") {
+    if (categoryCount === 3) {
+      bonusExp += 30;
+      messages.push("🔥 课程连击 x3！额外奖励已发放");
+    } else if (categoryCount === 5) {
+      bonusExp += 60;
+      messages.push("🔥 课程连击 x5！额外奖励已发放");
+    } else if (categoryCount === 10) {
+      bonusExp += 120;
+      bonusStats = { ...bonusStats, sanity: (bonusStats.sanity || 0) + 5 };
+      messages.push("⚡ 课程连击 x10！爆发奖励 +120 EXP +5 精神");
+    }
+  }
+
+  if (GROWTH_CATEGORIES.has(category)) {
+    if (totalToday === 5) {
+      bonusExp += 20;
+      messages.push("⚡ 今日爆发 x5！成长奖励 +20 EXP");
+    } else if (totalToday === 10) {
+      bonusExp += 45;
+      messages.push("⚡ 今日爆发 x10！成长奖励 +45 EXP");
+    }
+  }
+
+  return { bonusExp, bonusCoins, bonusStats, messages };
+}
+
 function computeAchievementProgress(state, template) {
   const { completedTasks, world } = state;
 
@@ -255,6 +314,22 @@ function computeAchievementProgress(state, template) {
     const count = completedTasks.filter(
       (task) => task.category === "course" && task.day === world.day
     ).length;
+    return {
+      progress: Math.min(count, template.target),
+      unlockedNow: count >= template.target,
+    };
+  }
+
+  if (template.type === "burst_course_daily") {
+    const count = state.burst?.byCategory?.course || 0;
+    return {
+      progress: Math.min(count, template.target),
+      unlockedNow: count >= template.target,
+    };
+  }
+
+  if (template.type === "burst_total_daily") {
+    const count = state.burst?.totalToday || 0;
     return {
       progress: Math.min(count, template.target),
       unlockedNow: count >= template.target,
@@ -489,6 +564,12 @@ export function WorldProvider({ children }) {
     if (!state) return;
 
     setState((prev) => {
+      const todayKey = getTodayKey();
+      let burst = prev.burst || createDefaultBurst(todayKey);
+      if (burst.dayKey !== todayKey) {
+        burst = createDefaultBurst(todayKey);
+      }
+
       const currentPhase = prev.world.phase;
       let nextPhase = currentPhase;
       let nextDay = prev.world.day;
@@ -531,6 +612,7 @@ export function WorldProvider({ children }) {
           phase: nextPhase,
           randomEvent: nextEvent,
         },
+        burst,
       };
 
       return recalculateAchievements(nextState);
@@ -631,8 +713,11 @@ export function WorldProvider({ children }) {
     }
 
     const rewardModifier = calculateRewardModifier(state.world.randomEvent, task.category);
-    const rewardExp = Math.max(0, Math.round((task.exp || 0) * rewardModifier.expMultiplier) + rewardModifier.expBonus);
-    const rewardCoins = Math.max(0, Math.round((task.coinsReward || 0) * rewardModifier.coinMultiplier));
+    const baseRewardExp = Math.max(
+      0,
+      Math.round((task.exp || 0) * rewardModifier.expMultiplier) + rewardModifier.expBonus
+    );
+    const baseRewardCoins = Math.max(0, Math.round((task.coinsReward || 0) * rewardModifier.coinMultiplier));
 
     const completedAt = Date.now();
 
@@ -653,12 +738,34 @@ export function WorldProvider({ children }) {
       };
     });
 
+    const todayKey = getTodayKey();
+    let burst = state.burst || createDefaultBurst(todayKey);
+    if (burst.dayKey !== todayKey) {
+      burst = createDefaultBurst(todayKey);
+    }
+
+    const category = task.category || "other";
+    const nextTotalToday = burst.totalToday + 1;
+    const nextByCategory = {
+      ...burst.byCategory,
+      [category]: (burst.byCategory?.[category] || 0) + 1,
+    };
+
+    const { bonusExp, bonusCoins, bonusStats, messages } = computeBurstBonus({
+      category,
+      categoryCount: nextByCategory[category],
+      totalToday: nextTotalToday,
+    });
+
+    const rewardExp = baseRewardExp + bonusExp;
+    const rewardCoins = baseRewardCoins + bonusCoins;
+
     const updatedStats = clampStats({
       ...state.stats,
       hunger: state.stats.hunger + (task.effect?.hunger || 0),
-      sanity: state.stats.sanity + (task.effect?.sanity || 0),
-      health: state.stats.health + (task.effect?.health || 0),
-      energy: state.stats.energy + (task.effect?.energy || 0),
+      sanity: state.stats.sanity + (task.effect?.sanity || 0) + (bonusStats.sanity || 0),
+      health: state.stats.health + (task.effect?.health || 0) + (bonusStats.health || 0),
+      energy: state.stats.energy + (task.effect?.energy || 0) + (bonusStats.energy || 0),
     });
 
     const completedEntry = {
@@ -683,6 +790,11 @@ export function WorldProvider({ children }) {
         ...state.currency,
         coins: state.currency.coins + rewardCoins,
       },
+      burst: {
+        dayKey: todayKey,
+        totalToday: nextTotalToday,
+        byCategory: nextByCategory,
+      },
     };
 
     nextState = progressTreasureMapsInternal(nextState, task);
@@ -695,6 +807,7 @@ export function WorldProvider({ children }) {
       ok: true,
       rewardExp,
       rewardCoins,
+      burstMessage: messages.join("\n"),
     };
   }, [state]);
 
@@ -893,6 +1006,7 @@ export function WorldProvider({ children }) {
     treasureMaps: state?.treasureMaps || [],
     claims: state?.claims || [],
     achievements: state?.achievements || [],
+    burst: state?.burst || createDefaultBurst(),
     changeStats,
     advancePhase,
     addCoins,
