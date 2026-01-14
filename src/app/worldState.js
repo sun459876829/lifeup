@@ -569,8 +569,12 @@ export function WorldProvider({ children }) {
       title: taskInput.title,
       category: taskInput.category || "other",
       subtype: taskInput.subtype,
+      size: taskInput.size,
+      difficulty: taskInput.difficulty,
       status: "todo",
       isRepeatable: Boolean(taskInput.isRepeatable),
+      isUserCreated: Boolean(taskInput.isUserCreated),
+      customCategoryLabel: taskInput.customCategoryLabel,
       createdAt: Date.now(),
       exp: taskInput.exp || 0,
       coinsReward: taskInput.coinsReward || 0,
@@ -588,6 +592,15 @@ export function WorldProvider({ children }) {
     }));
 
     return created;
+  }, [state]);
+
+  const removeTask = useCallback((taskId) => {
+    if (!state || !taskId) return;
+    setState((prev) => ({
+      ...prev,
+      tasks: (prev.tasks || []).filter((task) => task.id !== taskId),
+      completedTasks: (prev.completedTasks || []).filter((task) => task.taskId !== taskId),
+    }));
   }, [state]);
 
   const completeTask = useCallback((taskId) => {
@@ -898,6 +911,7 @@ export function WorldProvider({ children }) {
     addCoins,
     spendCoins,
     registerTask,
+    removeTask,
     completeTask,
     progressTreasureMaps,
     addTreasureMap,
@@ -914,6 +928,7 @@ export function WorldProvider({ children }) {
     addCoins,
     spendCoins,
     registerTask,
+    removeTask,
     completeTask,
     progressTreasureMaps,
     addTreasureMap,
