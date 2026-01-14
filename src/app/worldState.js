@@ -20,6 +20,8 @@ const DEFAULT_WORLD = {
   randomEvent: null,
 };
 
+const HISTORY_LIMIT = 200;
+
 function newId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -66,7 +68,31 @@ function createDefaultState() {
     treasureMaps: [],
     claims: [],
     achievements: initializeAchievements(),
+    history: [],
   };
+}
+
+function createSnapshotFromState(state) {
+  const { history, ...rest } = state || {};
+  if (typeof structuredClone === "function") {
+    return structuredClone(rest);
+  }
+  return JSON.parse(JSON.stringify(rest));
+}
+
+function appendHistory(state, label, meta) {
+  const entry = {
+    id: newId(),
+    at: Date.now(),
+    label,
+    meta,
+    snapshot: createSnapshotFromState(state),
+  };
+  const nextHistory = [entry, ...(state.history || [])];
+  if (nextHistory.length > HISTORY_LIMIT) {
+    nextHistory.length = HISTORY_LIMIT;
+  }
+  return nextHistory;
 }
 
 function normalizeTreasureMap(map) {
@@ -153,6 +179,7 @@ function migrateLegacyState(raw) {
     tasks,
     completedTasks,
     treasureMaps,
+    history: [],
   };
 }
 
@@ -176,6 +203,7 @@ function loadState() {
           : [],
         claims: Array.isArray(parsed.claims) ? parsed.claims : [],
         achievements: initializeAchievements(parsed.achievements),
+        history: Array.isArray(parsed.history) ? parsed.history : [],
       };
     }
 
@@ -485,6 +513,14 @@ export function WorldProvider({ children }) {
     });
   }, [state]);
 
+  const pushHistory = useCallback((label, meta) => {
+    if (!state) return;
+    setState((prev) => ({
+      ...prev,
+      history: appendHistory(prev, label, meta),
+    }));
+  }, [state]);
+
   const advancePhase = useCallback(() => {
     if (!state) return;
 
@@ -683,6 +719,10 @@ export function WorldProvider({ children }) {
         ...state.currency,
         coins: state.currency.coins + rewardCoins,
       },
+      history: appendHistory(state, `完成任务：${task.title}`, {
+        type: "task_complete",
+        taskId: task.id,
+      }),
     };
 
     nextState = progressTreasureMapsInternal(nextState, task);
@@ -806,6 +846,10 @@ export function WorldProvider({ children }) {
     updatedState.treasureMaps = (state.treasureMaps || []).map((item) =>
       item.id === mapId ? { ...item, status: "completed" } : item
     );
+    updatedState.history = appendHistory(state, `开启藏宝图：${map.name}`, {
+      type: "treasure_open",
+      mapId: map.id,
+    });
 
     setState(updatedState);
 
@@ -830,12 +874,20 @@ export function WorldProvider({ children }) {
 
   const useClaim = useCallback((claimId) => {
     if (!state) return;
-    setState((prev) => ({
-      ...prev,
-      claims: (prev.claims || []).map((item) =>
-        item.id === claimId ? { ...item, used: true } : item
-      ),
-    }));
+    setState((prev) => {
+      const claim = (prev.claims || []).find((item) => item.id === claimId);
+      if (!claim || claim.used) return prev;
+      return {
+        ...prev,
+        history: appendHistory(prev, `使用奖励券：${claim.name || "奖励券"}`, {
+          type: "claim_use",
+          claimId,
+        }),
+        claims: (prev.claims || []).map((item) =>
+          item.id === claimId ? { ...item, used: true } : item
+        ),
+      };
+    });
   }, [state]);
 
   const unlockAchievement = useCallback((key) => {
@@ -893,7 +945,9 @@ export function WorldProvider({ children }) {
     treasureMaps: state?.treasureMaps || [],
     claims: state?.claims || [],
     achievements: state?.achievements || [],
+    history: state?.history || [],
     changeStats,
+    pushHistory,
     advancePhase,
     addCoins,
     spendCoins,
@@ -910,6 +964,7 @@ export function WorldProvider({ children }) {
     hydrated,
     state,
     changeStats,
+    pushHistory,
     advancePhase,
     addCoins,
     spendCoins,
