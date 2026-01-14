@@ -35,10 +35,16 @@ const SHOP_ITEMS = [
 ];
 
 export default function ShopPage() {
-  const { hydrated, currency, spendCoins, addClaim } = useWorld();
+  const { hydrated, currency, spendCoins, addClaim, pushHistory } = useWorld();
   const [message, setMessage] = useState("");
 
   function handlePurchase(item) {
+    if (currency.coins < item.price) {
+      setMessage("🪙 金币不足，暂时无法兑换");
+      setTimeout(() => setMessage(""), 2500);
+      return;
+    }
+    pushHistory(`兑换奖励：${item.name}`, { type: "shop_purchase", itemId: item.id });
     const success = spendCoins(item.price);
     if (!success) {
       setMessage("🪙 金币不足，暂时无法兑换");
