@@ -5,10 +5,10 @@ import { usePathname } from "next/navigation";
 
 const NAV_ITEMS = [
   { href: "/", label: "首页", emoji: "🏠" },
-  { href: "/treasure", label: "藏宝图", emoji: "📜" },
-  { href: "/gems", label: "宝石工坊", emoji: "💎" },
+  { href: "/tasks", label: "任务", emoji: "📜" },
+  { href: "/treasure", label: "远征", emoji: "🗺️" },
   { href: "/shop", label: "商店", emoji: "🛒" },
-  { href: "/profile", label: "角色面板", emoji: "⚡" },
+  { href: "/inventory", label: "背包", emoji: "🎒" },
 ];
 
 export default function Navigation() {

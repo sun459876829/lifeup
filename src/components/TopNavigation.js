@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 const NAV_ITEMS = [
   { href: "/", label: "首页" },
   { href: "/tasks", label: "任务" },
-  { href: "/magic", label: "魔法" },
   { href: "/treasure", label: "藏宝图" },
   { href: "/shop", label: "商店" },
   { href: "/inventory", label: "背包" },
@@ -23,9 +22,9 @@ export default function TopNavigation() {
           {/* 左边：标题区 */}
           <div>
             <div className="text-[10px] tracking-[0.3em] uppercase text-slate-500">
-              LifeUP · Arcane World
+              LifeUP · Arcane Wilderness
             </div>
-            <div className="text-xs text-slate-300 mt-0.5">小魔女的个人魔法世界</div>
+            <div className="text-xs text-slate-300 mt-0.5">饥荒魔法人生 · 荒野生存日志</div>
           </div>
 
           {/* 右边：导航按钮 */}

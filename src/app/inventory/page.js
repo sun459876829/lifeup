@@ -1,39 +1,25 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useMagicWorld } from "../magicWorldContext";
+import { useState } from "react";
+import { useWorld } from "../worldState";
 
-// 来源映射
 const SOURCE_MAP = {
   shop: "商店",
-  lottery: "抽奖",
-  task: "任务",
-  fusion: "合成",
+  treasure: "藏宝图",
+  achievement: "成就",
+  event: "事件",
 };
 
 export default function InventoryPage() {
-  const { hydrated, claims } = useMagicWorld();
-  const [localClaims, setLocalClaims] = useState(claims || []);
-
-  // 当 claims 更新时同步本地状态
-  useEffect(() => {
-    setLocalClaims(claims || []);
-  }, [claims]);
-
-  function toggleUsed(claimId) {
-    setLocalClaims((prev) =>
-      prev.map((claim) =>
-        claim.id === claimId ? { ...claim, used: !claim.used } : claim
-      )
-    );
-  }
+  const { hydrated, claims, achievements, useClaim } = useWorld();
+  const [message, setMessage] = useState("");
 
   if (!hydrated) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center space-y-2">
           <div className="text-xs tracking-[0.3em] uppercase text-slate-500">
-            LifeUP · Arcane World
+            LifeUP · Arcane Wilderness
           </div>
           <div className="text-lg text-slate-100">正在加载背包…</div>
         </div>
@@ -41,100 +27,106 @@ export default function InventoryPage() {
     );
   }
 
-  // 按时间倒序排序（最新的在前）
-  const sortedClaims = [...(localClaims || [])].sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const sortedClaims = [...claims].sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const unlockedAchievements = achievements.filter((item) => item.unlocked);
+
+  function handleUseClaim(claimId) {
+    useClaim(claimId);
+    setMessage("✅ 已标记为已使用");
+    setTimeout(() => setMessage(""), 2000);
+  }
 
   return (
     <div className="space-y-6">
-      {/* 标题 */}
       <header className="space-y-2">
         <h1 className="text-3xl font-semibold bg-gradient-to-r from-violet-300 via-sky-200 to-emerald-300 bg-clip-text text-transparent">
-          🎒 背包
+          🎒 背包与成就
         </h1>
-        <p className="text-sm text-slate-400">查看你已获得的所有奖励和道具</p>
+        <p className="text-sm text-slate-400">查看奖励券、道具与成就进度</p>
       </header>
 
-      {/* 奖励列表 */}
-      {sortedClaims.length === 0 ? (
-        <div className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-8">
-          <div className="text-center space-y-2">
-            <div className="text-4xl mb-4">🎁</div>
-            <div className="text-slate-300 text-base mb-1">还没有道具</div>
-            <div className="text-slate-500 text-sm">
-              去任务大厅或者商店逛逛吧~
-            </div>
-          </div>
+      {message && (
+        <div className="rounded-lg bg-violet-500/20 border border-violet-500/40 p-3 text-sm text-violet-100">
+          {message}
         </div>
-      ) : (
-        <div className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-3">
-          <h2 className="text-sm font-medium text-slate-100 mb-4">
-            我的奖励 ({sortedClaims.length})
-          </h2>
+      )}
+
+      <section className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-4">
+        <h2 className="text-sm font-medium text-slate-100">🎁 奖励券</h2>
+        {sortedClaims.length === 0 ? (
+          <div className="text-sm text-slate-500">还没有奖励券。</div>
+        ) : (
           <div className="space-y-2">
             {sortedClaims.map((claim) => {
-              const isUsed = claim.used || false;
-              const source = SOURCE_MAP[claim.type] || "未知来源";
-
+              const source = SOURCE_MAP[claim.type] || "来源未知";
               return (
                 <div
                   key={claim.id}
                   className={`rounded-lg border p-4 ${
-                    isUsed
+                    claim.used
                       ? "border-slate-800 bg-slate-900/30 opacity-60"
                       : "border-slate-700 bg-slate-950/50"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3 flex-1">
-                      <span className="text-2xl">{claim.emoji || "🎁"}</span>
-                      <div className="flex-1">
-                        <div
-                          className={`text-sm font-medium ${
-                            isUsed ? "line-through text-slate-500" : "text-slate-200"
-                          }`}
-                        >
-                          {claim.name}
-                        </div>
-                        <div className="flex items-center gap-3 mt-1">
-                          <span className="text-xs text-slate-500">来源：{source}</span>
-                          <span className="text-xs text-slate-500">
-                            {new Date(claim.ts).toLocaleDateString("zh-CN", {
-                              year: "numeric",
-                              month: "short",
-                              day: "numeric",
-                            })}
-                          </span>
-                        </div>
+                    <div>
+                      <div className="text-sm text-slate-200">{claim.name}</div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        {source} · {new Date(claim.ts).toLocaleDateString("zh-CN")}
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`text-xs px-2 py-1 rounded-full ${
-                          isUsed
-                            ? "bg-slate-800 text-slate-500"
-                            : "bg-emerald-500/20 text-emerald-300"
-                        }`}
-                      >
-                        {isUsed ? "已用" : "未用"}
-                      </span>
-                      <button
-                        onClick={() => toggleUsed(claim.id)}
-                        className={`text-xs px-3 py-1.5 rounded-lg transition ${
-                          isUsed
-                            ? "bg-slate-800 text-slate-400 hover:bg-slate-700"
-                            : "bg-violet-500/20 text-violet-300 hover:bg-violet-500/30"
-                        }`}
-                      >
-                        {isUsed ? "标记未用" : "标记已用"}
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => handleUseClaim(claim.id)}
+                      disabled={claim.used}
+                      className={`text-xs px-3 py-1.5 rounded-lg transition ${
+                        claim.used
+                          ? "bg-slate-800 text-slate-500 cursor-not-allowed"
+                          : "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
+                      }`}
+                    >
+                      {claim.used ? "已使用" : "标记使用"}
+                    </button>
                   </div>
                 </div>
               );
             })}
           </div>
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4">
+        <h2 className="text-sm font-medium text-slate-100">🏆 成就</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {achievements.map((achievement) => (
+            <div
+              key={achievement.key}
+              className={`rounded-xl border p-4 ${
+                achievement.unlocked
+                  ? "border-emerald-500/40 bg-emerald-500/10"
+                  : "border-slate-800 bg-slate-950/60"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium text-slate-200">{achievement.name}</div>
+                  <div className="text-xs text-slate-500 mt-1">{achievement.description}</div>
+                </div>
+                <div className="text-xs text-slate-400">
+                  {achievement.unlocked ? "已解锁" : `${achievement.progress || 0}/${achievement.target || 0}`}
+                </div>
+              </div>
+              {achievement.unlocked && (
+                <div className="text-[11px] text-emerald-300 mt-2">
+                  解锁于 {achievement.unlockedAt ? new Date(achievement.unlockedAt).toLocaleDateString("zh-CN") : "刚刚"}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
-      )}
+        {unlockedAchievements.length === 0 && (
+          <div className="text-xs text-slate-500">尚未解锁成就，继续在任务大厅积累进度。</div>
+        )}
+      </section>
     </div>
   );
 }
