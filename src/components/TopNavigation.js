@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const NAV_ITEMS = [
   { href: "/", label: "首页" },
   { href: "/tasks", label: "任务" },
+  { href: "/custom-tasks", label: "自定义任务" },
   { href: "/treasure", label: "藏宝图" },
   { href: "/shop", label: "商店" },
   { href: "/inventory", label: "背包" },

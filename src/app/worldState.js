@@ -612,6 +612,9 @@ export function WorldProvider({ children }) {
       prerequisites: taskInput.prerequisites || [],
       requirements: taskInput.requirements || {},
       tags: taskInput.tags || [],
+      isUserCreated: Boolean(taskInput.isUserCreated),
+      size: taskInput.size,
+      difficulty: taskInput.difficulty,
     };
 
     setState((prev) => ({
@@ -620,6 +623,14 @@ export function WorldProvider({ children }) {
     }));
 
     return created;
+  }, [state]);
+
+  const removeTask = useCallback((taskId) => {
+    if (!state) return;
+    setState((prev) => ({
+      ...prev,
+      tasks: (prev.tasks || []).filter((task) => task.id !== taskId),
+    }));
   }, [state]);
 
   const completeTask = useCallback((taskId) => {
@@ -987,6 +998,7 @@ export function WorldProvider({ children }) {
     restoreHistoryEntry,
     unlockAchievement,
     updateAchievementProgress,
+    removeTask,
   }), [
     hydrated,
     state,
@@ -1006,6 +1018,7 @@ export function WorldProvider({ children }) {
     restoreHistoryEntry,
     unlockAchievement,
     updateAchievementProgress,
+    removeTask,
   ]);
 
   return <WorldContext.Provider value={value}>{children}</WorldContext.Provider>;
