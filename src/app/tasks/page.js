@@ -63,12 +63,6 @@ export default function TasksPage() {
     return true;
   }
 
-  function cooldownLeft(task) {
-    if (!task.cooldownMinutes || !task.lastCompletedAt) return 0;
-    const remaining = task.lastCompletedAt + task.cooldownMinutes * 60 * 1000 - Date.now();
-    return Math.max(0, remaining);
-  }
-
   if (!hydrated) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -137,9 +131,6 @@ export default function TasksPage() {
                       </div>
                       <div className="flex flex-wrap gap-2 text-xs text-slate-400">
                         <span>🪙 {template.coinsReward}</span>
-                        {template.cooldownMinutes && (
-                          <span>⏳ 冷却 {template.cooldownMinutes}m</span>
-                        )}
                         {template.isRepeatable && <span>🔁 可重复</span>}
                       </div>
                       {effects.length > 0 && (
@@ -182,8 +173,6 @@ export default function TasksPage() {
           <div className="space-y-3">
             {todoTasks.map((task) => {
               const effects = formatEffect(task.effect);
-              const remaining = cooldownLeft(task);
-              const canComplete = remaining === 0;
               return (
                 <div key={task.id} className="rounded-xl border border-slate-700 bg-slate-950/50 p-4">
                   <div className="flex items-center justify-between">
@@ -211,14 +200,11 @@ export default function TasksPage() {
                     </div>
                     <button
                       onClick={() => handleComplete(task.id)}
-                      disabled={!canComplete}
                       className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                        canComplete
-                          ? "bg-emerald-500/80 hover:bg-emerald-500 text-white"
-                          : "bg-slate-800 text-slate-500 cursor-not-allowed"
+                        "bg-emerald-500/80 hover:bg-emerald-500 text-white"
                       }`}
                     >
-                      {canComplete ? "完成" : "冷却中"}
+                      完成
                     </button>
                   </div>
                 </div>
