@@ -4,17 +4,33 @@ import { useMemo, useState } from "react";
 import { useWorld } from "../worldState";
 import { TASK_CATEGORIES, TASK_TEMPLATES } from "../gameConfig/tasksConfig";
 
-function formatEffect(effect = {}) {
+const GROWTH_CATEGORIES = new Set(["course", "english", "life", "future", "weight", "photo", "other"]);
+
+function normalizeEffect(category, effect = {}) {
+  if (category === "nightclub") return effect;
+  if (GROWTH_CATEGORIES.has(category)) {
+    return {
+      hunger: Math.max(effect.hunger || 0, -2),
+      sanity: Math.max(effect.sanity || 0, 0),
+      health: Math.max(effect.health || 0, 0),
+      energy: Math.max(effect.energy || 0, -2),
+    };
+  }
+  return effect;
+}
+
+function formatEffect(category, effect = {}) {
+  const normalized = normalizeEffect(category, effect);
   const labels = [];
-  if (effect.hunger) labels.push(`🍞 ${effect.hunger > 0 ? "+" : ""}${effect.hunger} 饱食`);
-  if (effect.sanity) labels.push(`🧠 ${effect.sanity > 0 ? "+" : ""}${effect.sanity} 精神`);
-  if (effect.health) labels.push(`❤️ ${effect.health > 0 ? "+" : ""}${effect.health} 生命`);
-  if (effect.energy) labels.push(`⚡ ${effect.energy > 0 ? "+" : ""}${effect.energy} 能量`);
+  if (normalized.hunger) labels.push(`🍞 ${normalized.hunger > 0 ? "+" : ""}${normalized.hunger} 饱食`);
+  if (normalized.sanity) labels.push(`🧠 ${normalized.sanity > 0 ? "+" : ""}${normalized.sanity} 精神`);
+  if (normalized.health) labels.push(`❤️ ${normalized.health > 0 ? "+" : ""}${normalized.health} 生命`);
+  if (normalized.energy) labels.push(`⚡ ${normalized.energy > 0 ? "+" : ""}${normalized.energy} 能量`);
   return labels;
 }
 
 export default function TasksPage() {
-  const { hydrated, tasks, stats, achievements, registerTask, completeTask } = useWorld();
+  const { hydrated, tasks, stats, achievements, registerTask, completeTask, burst } = useWorld();
   const [message, setMessage] = useState("");
 
   const groupedTemplates = useMemo(() => {
@@ -44,7 +60,11 @@ export default function TasksPage() {
       setTimeout(() => setMessage(""), 3000);
       return;
     }
-    setMessage(`✨ 完成任务，获得 ${result.rewardCoins}🪙 + ${result.rewardExp} EXP`);
+    const bonusNote =
+      result.bonusExp || result.bonusSanity
+        ? `（连击奖励 +${result.bonusExp} EXP · 🧠 +${result.bonusSanity}）`
+        : "";
+    setMessage(`✨ 完成任务，获得 ${result.rewardCoins}🪙 + ${result.rewardExp} EXP ${bonusNote}`);
     setTimeout(() => setMessage(""), 3000);
   }
 
@@ -61,12 +81,6 @@ export default function TasksPage() {
     }
 
     return true;
-  }
-
-  function cooldownLeft(task) {
-    if (!task.cooldownMinutes || !task.lastCompletedAt) return 0;
-    const remaining = task.lastCompletedAt + task.cooldownMinutes * 60 * 1000 - Date.now();
-    return Math.max(0, remaining);
   }
 
   if (!hydrated) {
@@ -94,6 +108,9 @@ export default function TasksPage() {
         <p className="text-sm text-slate-400">
           接受任务 → 完成任务 → 资源与成就推进。每个任务都像饥荒里的「砍一棵树」。
         </p>
+        <div className="text-xs text-slate-500">
+          今日完成 {burst?.total || 0} 次任务 · 课程连击 {burst?.byCategory?.course || 0} 次
+        </div>
       </header>
 
       {message && (
@@ -115,7 +132,7 @@ export default function TasksPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {(groupedTemplates[category.key] || []).map((template) => {
-                  const effects = formatEffect(template.effect);
+                  const effects = formatEffect(template.category, template.effect);
                   const canTake = canAccept(template);
                   return (
                     <div
@@ -137,9 +154,6 @@ export default function TasksPage() {
                       </div>
                       <div className="flex flex-wrap gap-2 text-xs text-slate-400">
                         <span>🪙 {template.coinsReward}</span>
-                        {template.cooldownMinutes && (
-                          <span>⏳ 冷却 {template.cooldownMinutes}m</span>
-                        )}
                         {template.isRepeatable && <span>🔁 可重复</span>}
                       </div>
                       {effects.length > 0 && (
@@ -181,9 +195,8 @@ export default function TasksPage() {
         ) : (
           <div className="space-y-3">
             {todoTasks.map((task) => {
-              const effects = formatEffect(task.effect);
-              const remaining = cooldownLeft(task);
-              const canComplete = remaining === 0;
+              const effects = formatEffect(task.category, task.effect);
+              const canComplete = true;
               return (
                 <div key={task.id} className="rounded-xl border border-slate-700 bg-slate-950/50 p-4">
                   <div className="flex items-center justify-between">
@@ -218,7 +231,7 @@ export default function TasksPage() {
                           : "bg-slate-800 text-slate-500 cursor-not-allowed"
                       }`}
                     >
-                      {canComplete ? "完成" : "冷却中"}
+                      完成
                     </button>
                   </div>
                 </div>

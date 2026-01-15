@@ -7,8 +7,8 @@ import { computeRewardsForTask, TASK_SIZE_OPTIONS } from "../gameConfig/taskRewa
 const CATEGORY_OPTIONS = [
   { value: "life", label: "生活" },
   { value: "other", label: "购物" },
-  { value: "future", label: "工作" },
   { value: "course", label: "学习" },
+  { value: "future", label: "工作" },
   { value: "other", label: "情绪" },
   { value: "other", label: "其他" },
 ];
@@ -35,8 +35,14 @@ export default function CustomTasksPage() {
   const [message, setMessage] = useState("");
 
   const preview = useMemo(
-    () => computeRewardsForTask({ size: form.size, difficulty: form.difficulty }),
-    [form.size, form.difficulty]
+    () =>
+      computeRewardsForTask({
+        size: form.size,
+        difficulty: form.difficulty,
+        category: form.category || "other",
+        isUserCreated: true,
+      }),
+    [form.size, form.difficulty, form.category]
   );
 
   const customTasks = useMemo(
@@ -59,7 +65,12 @@ export default function CustomTasksPage() {
       return;
     }
 
-    const reward = computeRewardsForTask({ size: form.size, difficulty: form.difficulty });
+    const reward = computeRewardsForTask({
+      size: form.size,
+      difficulty: form.difficulty,
+      category: form.category || "other",
+      isUserCreated: true,
+    });
 
     const created = registerTask({
       title: form.title.trim(),
@@ -224,7 +235,7 @@ export default function CustomTasksPage() {
             {form.size && form.difficulty ? (
               <div className="mt-2 flex flex-wrap gap-3 text-sm text-slate-200">
                 <span>预计 EXP {preview.exp}</span>
-                <span>预计 coins {preview.coinsReward}</span>
+                <span>预计金币 {preview.coinsReward}</span>
                 <span>预计精神 {formatSanity(preview.effect)}</span>
               </div>
             ) : (
