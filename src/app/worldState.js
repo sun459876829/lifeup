@@ -20,7 +20,14 @@ const DEFAULT_WORLD = {
   randomEvent: null,
 };
 
+const DEFAULT_BURST = {
+  day: 1,
+  total: 0,
+  byCategory: {},
+};
+
 const HISTORY_LIMIT = 200;
+const GROWTH_CATEGORIES = new Set(["course", "english", "life", "future", "weight", "photo", "other"]);
 
 function newId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -40,6 +47,17 @@ function clampStats(stats) {
     health: clampStat(stats.health),
     energy: clampStat(stats.energy),
   };
+}
+
+function ensureBurstForDay(burst, day) {
+  if (!burst || burst.day !== day) {
+    return {
+      day,
+      total: 0,
+      byCategory: {},
+    };
+  }
+  return burst;
 }
 
 function initializeAchievements(existing = []) {
@@ -68,6 +86,7 @@ function createDefaultState() {
     treasureMaps: [],
     claims: [],
     achievements: initializeAchievements(),
+    burst: { ...DEFAULT_BURST },
     history: [],
   };
 }
@@ -194,11 +213,12 @@ function loadState() {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
+      const world = { ...DEFAULT_WORLD, ...(parsed.world || {}) };
       return {
         ...createDefaultState(),
         ...parsed,
         stats: { ...DEFAULT_STATS, ...(parsed.stats || {}) },
-        world: { ...DEFAULT_WORLD, ...(parsed.world || {}) },
+        world,
         currency: { coins: parsed.currency?.coins ?? 0 },
         tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
         completedTasks: Array.isArray(parsed.completedTasks) ? parsed.completedTasks : [],
@@ -207,6 +227,7 @@ function loadState() {
           : [],
         claims: Array.isArray(parsed.claims) ? parsed.claims : [],
         achievements: initializeAchievements(parsed.achievements),
+        burst: ensureBurstForDay(parsed.burst, world.day),
         history: Array.isArray(parsed.history) ? parsed.history : [],
       };
     }
@@ -253,6 +274,40 @@ function calculateRewardModifier(randomEvent, taskCategory) {
         expBonus: expBonus ?? 0,
       }
     : { expMultiplier: 1, coinMultiplier: 1, expBonus: 0 };
+}
+
+function normalizeTaskEffect(task) {
+  const effect = task.effect || {};
+  const category = task.category || "other";
+  if (category === "nightclub") {
+    return {
+      hunger: effect.hunger || 0,
+      sanity: effect.sanity || 0,
+      health: effect.health || 0,
+      energy: effect.energy || 0,
+    };
+  }
+  if (GROWTH_CATEGORIES.has(category)) {
+    return {
+      hunger: Math.max(effect.hunger || 0, -2),
+      sanity: Math.max(effect.sanity || 0, 0),
+      health: Math.max(effect.health || 0, 0),
+      energy: Math.max(effect.energy || 0, -2),
+    };
+  }
+  return {
+    hunger: effect.hunger || 0,
+    sanity: effect.sanity || 0,
+    health: effect.health || 0,
+    energy: effect.energy || 0,
+  };
+}
+
+function getCourseBurstBonus(count) {
+  if (count === 3) return { bonusExp: 6, bonusSanity: 2 };
+  if (count === 5) return { bonusExp: 10, bonusSanity: 3 };
+  if (count === 10) return { bonusExp: 20, bonusSanity: 6 };
+  return { bonusExp: 0, bonusSanity: 0 };
 }
 
 function computeAchievementProgress(state, template) {
@@ -563,6 +618,7 @@ export function WorldProvider({ children }) {
           phase: nextPhase,
           randomEvent: nextEvent,
         },
+        burst: ensureBurstForDay(prev.burst, nextDay),
       };
 
       return recalculateAchievements(nextState);
@@ -642,13 +698,6 @@ export function WorldProvider({ children }) {
       return { ok: false, message: "任务已完成" };
     }
 
-    if (task.cooldownMinutes && task.lastCompletedAt) {
-      const nextAvailable = task.lastCompletedAt + task.cooldownMinutes * 60 * 1000;
-      if (Date.now() < nextAvailable) {
-        return { ok: false, message: "任务冷却中，稍后再试" };
-      }
-    }
-
     if (task.requirements) {
       const { energy, hunger, sanity, health } = task.requirements;
       if (energy && state.stats.energy < energy) {
@@ -673,13 +722,19 @@ export function WorldProvider({ children }) {
       }
     }
 
-    const baseState = pushHistoryEntry(state, `完成任务：${task.title}`, {
+    const normalizedBurst = ensureBurstForDay(state.burst, state.world.day);
+    const normalizedState = normalizedBurst === state.burst ? state : { ...state, burst: normalizedBurst };
+
+    const baseState = pushHistoryEntry(normalizedState, `完成任务：${task.title}`, {
       type: "task_complete",
       taskId,
     });
 
     const rewardModifier = calculateRewardModifier(baseState.world.randomEvent, task.category);
-    const rewardExp = Math.max(0, Math.round((task.exp || 0) * rewardModifier.expMultiplier) + rewardModifier.expBonus);
+    const baseRewardExp = Math.max(
+      0,
+      Math.round((task.exp || 0) * rewardModifier.expMultiplier) + rewardModifier.expBonus
+    );
     const rewardCoins = Math.max(0, Math.round((task.coinsReward || 0) * rewardModifier.coinMultiplier));
 
     const completedAt = Date.now();
@@ -701,12 +756,30 @@ export function WorldProvider({ children }) {
       };
     });
 
+    const taskEffect = normalizeTaskEffect(task);
+
+    const burstCategory = task.category || "other";
+    const currentBurst = ensureBurstForDay(baseState.burst, baseState.world.day);
+    const categoryCount = (currentBurst.byCategory?.[burstCategory] || 0) + 1;
+    const updatedBurst = {
+      day: baseState.world.day,
+      total: (currentBurst.total || 0) + 1,
+      byCategory: {
+        ...(currentBurst.byCategory || {}),
+        [burstCategory]: categoryCount,
+      },
+    };
+
+    const { bonusExp, bonusSanity } =
+      burstCategory === "course" ? getCourseBurstBonus(categoryCount) : { bonusExp: 0, bonusSanity: 0 };
+    const rewardExp = baseRewardExp + bonusExp;
+
     const updatedStats = clampStats({
       ...baseState.stats,
-      hunger: baseState.stats.hunger + (task.effect?.hunger || 0),
-      sanity: baseState.stats.sanity + (task.effect?.sanity || 0),
-      health: baseState.stats.health + (task.effect?.health || 0),
-      energy: baseState.stats.energy + (task.effect?.energy || 0),
+      hunger: baseState.stats.hunger + (taskEffect.hunger || 0),
+      sanity: baseState.stats.sanity + (taskEffect.sanity || 0) + bonusSanity,
+      health: baseState.stats.health + (taskEffect.health || 0),
+      energy: baseState.stats.energy + (taskEffect.energy || 0),
     });
 
     const completedEntry = {
@@ -731,6 +804,7 @@ export function WorldProvider({ children }) {
         ...baseState.currency,
         coins: baseState.currency.coins + rewardCoins,
       },
+      burst: updatedBurst,
     };
 
     nextState = progressTreasureMapsInternal(nextState, task);
@@ -743,6 +817,9 @@ export function WorldProvider({ children }) {
       ok: true,
       rewardExp,
       rewardCoins,
+      bonusExp,
+      bonusSanity,
+      burstCount: categoryCount,
     };
   }, [state]);
 
@@ -902,7 +979,7 @@ export function WorldProvider({ children }) {
     setState((prev) => pushHistoryEntry(prev, label, meta));
   }, [state]);
 
-  const undoLastHistory = useCallback(() => {
+  const undoLastAction = useCallback(() => {
     if (!state?.history?.length) return false;
     setState((prev) => {
       const [latest, ...rest] = prev.history || [];
@@ -915,13 +992,15 @@ export function WorldProvider({ children }) {
     return true;
   }, [state]);
 
-  const restoreHistoryEntry = useCallback((entryId) => {
+  const restoreFromHistory = useCallback((entryId) => {
     if (!state?.history?.length) return false;
-    const entry = state.history.find((item) => item.id === entryId);
+    const entryIndex = state.history.findIndex((item) => item.id === entryId);
+    if (entryIndex < 0) return false;
+    const entry = state.history[entryIndex];
     if (!entry?.snapshot) return false;
-    setState((prev) => ({
+    setState(() => ({
       ...deepClone(entry.snapshot),
-      history: prev.history || [],
+      history: state.history.slice(entryIndex),
     }));
     return true;
   }, [state]);
@@ -981,6 +1060,7 @@ export function WorldProvider({ children }) {
     treasureMaps: state?.treasureMaps || [],
     claims: state?.claims || [],
     achievements: state?.achievements || [],
+    burst: state?.burst || { ...DEFAULT_BURST },
     history: state?.history || [],
     changeStats,
     advancePhase,
@@ -994,8 +1074,8 @@ export function WorldProvider({ children }) {
     addClaim,
     useClaim,
     pushHistory,
-    undoLastHistory,
-    restoreHistoryEntry,
+    undoLastAction,
+    restoreFromHistory,
     unlockAchievement,
     updateAchievementProgress,
     removeTask,
@@ -1014,8 +1094,8 @@ export function WorldProvider({ children }) {
     addClaim,
     useClaim,
     pushHistory,
-    undoLastHistory,
-    restoreHistoryEntry,
+    undoLastAction,
+    restoreFromHistory,
     unlockAchievement,
     updateAchievementProgress,
     removeTask,
