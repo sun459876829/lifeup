@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useWorld } from "../worldState";
 
 export default function ProfilePage() {
-  const { hydrated, stats, world, currency, achievements, completedTasks } = useWorld();
+  const { hydrated, stats, world, currency, tickets, achievements, completedTasks } = useWorld();
 
   if (!hydrated) {
     return (
@@ -53,18 +53,21 @@ export default function ProfilePage() {
             <div className="text-center p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
               <div className="text-2xl mb-1">🪙</div>
               <div className="text-xl font-bold text-amber-300">{currency.coins}</div>
-              <div className="text-[10px] text-slate-400 mt-1">金币储备</div>
+              <div className="text-[10px] text-slate-400 mt-1">魔力币储备</div>
             </div>
             <div className="text-center p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
-              <div className="text-2xl mb-1">🏆</div>
-              <div className="text-xl font-bold text-emerald-300">{unlockedCount}</div>
-              <div className="text-[10px] text-slate-400 mt-1">已解锁成就</div>
+              <div className="text-2xl mb-1">🎫</div>
+              <div className="text-xl font-bold text-emerald-300">{tickets.game}</div>
+              <div className="text-[10px] text-slate-400 mt-1">当前游戏券</div>
             </div>
             <div className="text-center p-3 rounded-lg bg-sky-500/10 border border-sky-500/30">
-              <div className="text-2xl mb-1">✅</div>
-              <div className="text-xl font-bold text-sky-300">{completedTasks.length}</div>
-              <div className="text-[10px] text-slate-400 mt-1">历史完成任务</div>
+              <div className="text-2xl mb-1">🏆</div>
+              <div className="text-xl font-bold text-sky-300">{unlockedCount}</div>
+              <div className="text-[10px] text-slate-400 mt-1">已解锁成就</div>
             </div>
+          </div>
+          <div className="mt-4 text-xs text-slate-500">
+            历史完成任务：{completedTasks.length} 次
           </div>
         </section>
 

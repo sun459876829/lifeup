@@ -42,7 +42,7 @@ export default function InventoryPage() {
         <h1 className="text-3xl font-semibold bg-gradient-to-r from-violet-300 via-sky-200 to-emerald-300 bg-clip-text text-transparent">
           🎒 背包与成就
         </h1>
-        <p className="text-sm text-slate-400">查看奖励券、道具与成就进度</p>
+        <p className="text-sm text-slate-400">查看纪念徽章与成就进度</p>
       </header>
 
       {message && (
@@ -52,9 +52,9 @@ export default function InventoryPage() {
       )}
 
       <section className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-4">
-        <h2 className="text-sm font-medium text-slate-100">🎁 奖励券</h2>
+        <h2 className="text-sm font-medium text-slate-100">🎁 纪念徽章</h2>
         {sortedClaims.length === 0 ? (
-          <div className="text-sm text-slate-500">还没有奖励券。</div>
+          <div className="text-sm text-slate-500">还没有纪念徽章。</div>
         ) : (
           <div className="space-y-2">
             {sortedClaims.map((claim) => {

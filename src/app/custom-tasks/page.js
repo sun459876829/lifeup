@@ -235,7 +235,7 @@ export default function CustomTasksPage() {
             {form.size && form.difficulty ? (
               <div className="mt-2 flex flex-wrap gap-3 text-sm text-slate-200">
                 <span>预计 EXP {preview.exp}</span>
-                <span>预计金币 {preview.coinsReward}</span>
+                <span>预计魔力币 {preview.coinsReward}</span>
                 <span>预计精神 {formatSanity(preview.effect)}</span>
               </div>
             ) : (
