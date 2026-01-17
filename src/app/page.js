@@ -119,10 +119,10 @@ export default function Page() {
       <section className="rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-amber-900/10 p-5">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-xs text-slate-500">当前金币</div>
+            <div className="text-xs text-slate-500">当前魔力币</div>
             <div className="text-2xl font-semibold text-amber-300">{currency.coins}🪙</div>
           </div>
-          <div className="text-sm text-slate-400">完成任务即可增长金币与奖励券</div>
+          <div className="text-sm text-slate-400">完成任务获得魔力币，再兑换为游戏券</div>
         </div>
       </section>
     </div>

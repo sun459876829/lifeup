@@ -8,7 +8,7 @@ export const ACHIEVEMENTS_CONFIG = [
     reward: {
       coins: 30,
       stats: { sanity: 5 },
-      claimName: "🕯️ 第一盏灯奖励券",
+      claimName: "🕯️ 第一盏灯徽章",
     },
   },
   {
@@ -20,7 +20,7 @@ export const ACHIEVEMENTS_CONFIG = [
     reward: {
       coins: 60,
       stats: { sanity: 8 },
-      claimName: "📜 荒野学徒徽章券",
+      claimName: "📜 荒野学徒徽章",
     },
   },
   {

@@ -20,7 +20,7 @@ export const RANDOM_EVENTS = [
   {
     id: "lucky_star",
     name: "幸运星雨",
-    description: "今天任务金币 +20%",
+    description: "今天任务魔力币 +20%",
     taskRewardModifier: {
       coinMultiplier: 1.2,
     },

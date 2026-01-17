@@ -81,6 +81,7 @@ function createDefaultState() {
     stats: { ...DEFAULT_STATS },
     world: { ...DEFAULT_WORLD },
     currency: { coins: 0 },
+    tickets: { game: 0 },
     tasks: [],
     completedTasks: [],
     treasureMaps: [],
@@ -140,6 +141,9 @@ function migrateLegacyState(raw) {
   if (!raw || typeof raw !== "object") return base;
 
   const coins = raw.currency?.coins ?? raw.coins ?? base.currency.coins;
+  const tickets = {
+    game: raw.tickets?.game ?? base.tickets.game,
+  };
   const claims = Array.isArray(raw.claims) ? raw.claims : [];
 
   let tasks = [];
@@ -199,6 +203,7 @@ function migrateLegacyState(raw) {
   return {
     ...base,
     currency: { coins },
+    tickets,
     claims,
     tasks,
     completedTasks,
@@ -220,6 +225,7 @@ function loadState() {
         stats: { ...DEFAULT_STATS, ...(parsed.stats || {}) },
         world,
         currency: { coins: parsed.currency?.coins ?? 0 },
+        tickets: { game: parsed.tickets?.game ?? 0 },
         tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
         completedTasks: Array.isArray(parsed.completedTasks) ? parsed.completedTasks : [],
         treasureMaps: Array.isArray(parsed.treasureMaps)
@@ -649,6 +655,69 @@ export function WorldProvider({ children }) {
     return true;
   }, [state]);
 
+  const exchangeCoinsForGameTicket = useCallback((cost = 50) => {
+    if (!state) return { ok: false, message: "世界尚未加载" };
+    let result = { ok: false, message: "魔力币不足，无法兑换游戏券" };
+
+    setState((prev) => {
+      if (prev.currency.coins < cost) {
+        result = { ok: false, message: "魔力币不足，无法兑换游戏券" };
+        return prev;
+      }
+
+      const beforeCoins = prev.currency.coins;
+      const afterCoins = beforeCoins - cost;
+      const nextState = pushHistoryEntry(prev, "兑换游戏券", {
+        type: "exchange_game_ticket",
+        cost,
+        beforeCoins,
+        afterCoins,
+      });
+
+      result = { ok: true, message: "✅ 已兑换 1 张游戏券" };
+
+      return {
+        ...nextState,
+        currency: {
+          ...nextState.currency,
+          coins: afterCoins,
+        },
+        tickets: {
+          ...nextState.tickets,
+          game: (nextState.tickets?.game || 0) + 1,
+        },
+      };
+    });
+
+    return result;
+  }, [state]);
+
+  const useGameTicket = useCallback(() => {
+    if (!state) return { ok: false, message: "世界尚未加载" };
+    let result = { ok: false, message: "你今天还没通过做任务赚到游戏券，要不要先做点事再玩？" };
+
+    setState((prev) => {
+      const currentTickets = prev.tickets?.game || 0;
+      if (currentTickets <= 0) {
+        result = { ok: false, message: "你今天还没通过做任务赚到游戏券，要不要先做点事再玩？" };
+        return prev;
+      }
+
+      const nextState = pushHistoryEntry(prev, "使用游戏券", { type: "use_game_ticket" });
+      result = { ok: true, message: "🎮 你使用了 1 张游戏券，可以安心玩一会儿游戏了" };
+
+      return {
+        ...nextState,
+        tickets: {
+          ...nextState.tickets,
+          game: currentTickets - 1,
+        },
+      };
+    });
+
+    return result;
+  }, [state]);
+
   const registerTask = useCallback((taskInput) => {
     if (!state || !taskInput) return null;
 
@@ -961,7 +1030,7 @@ export function WorldProvider({ children }) {
     setState((prev) => {
       const claim = (prev.claims || []).find((item) => item.id === claimId);
       if (!claim || claim.used) return prev;
-      const nextState = pushHistoryEntry(prev, `使用奖励券：${claim.name}`, {
+      const nextState = pushHistoryEntry(prev, `标记徽章：${claim.name}`, {
         type: "claim_use",
         claimId,
       });
@@ -1055,6 +1124,7 @@ export function WorldProvider({ children }) {
     stats: state?.stats || { ...DEFAULT_STATS },
     world: state?.world || { ...DEFAULT_WORLD },
     currency: state?.currency || { coins: 0 },
+    tickets: state?.tickets || { game: 0 },
     tasks: state?.tasks || [],
     completedTasks: state?.completedTasks || [],
     treasureMaps: state?.treasureMaps || [],
@@ -1066,6 +1136,8 @@ export function WorldProvider({ children }) {
     advancePhase,
     addCoins,
     spendCoins,
+    exchangeCoinsForGameTicket,
+    useGameTicket,
     registerTask,
     completeTask,
     progressTreasureMaps,
@@ -1086,6 +1158,8 @@ export function WorldProvider({ children }) {
     advancePhase,
     addCoins,
     spendCoins,
+    exchangeCoinsForGameTicket,
+    useGameTicket,
     registerTask,
     completeTask,
     progressTreasureMaps,
