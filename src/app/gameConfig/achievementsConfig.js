@@ -31,7 +31,7 @@ export const ACHIEVEMENTS_CONFIG = [
     type: "course_daily",
     reward: {
       coins: 40,
-      stats: { energy: -2, sanity: 6 },
+      stats: { sanity: 6 },
     },
   },
   {
@@ -43,19 +43,19 @@ export const ACHIEVEMENTS_CONFIG = [
     tag: "no_junk_food",
     reward: {
       coins: 25,
-      stats: { health: 6 },
+      stats: { life: 6 },
     },
   },
   {
     key: "nightclub_no_shift2_30",
-    name: "能量守护者",
+    name: "精神守护者",
     description: "连续 30 天没有二班",
     target: 30,
     type: "no_tag_days",
     tag: "nightclub_shift2",
     reward: {
       coins: 80,
-      stats: { energy: 10 },
+      stats: { sanity: 6 },
     },
   },
   {
@@ -67,7 +67,7 @@ export const ACHIEVEMENTS_CONFIG = [
     tag: "room_cleanup",
     reward: {
       coins: 50,
-      stats: { sanity: 8, health: 6 },
+      stats: { sanity: 8, life: 6 },
       claimName: "🧹 净化者徽章",
     },
   },

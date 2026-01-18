@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useWorld } from "../worldState";
+import { COIN_TO_RMB } from "../../game/config";
 
 const GAME_TICKET_COST = 50;
 
@@ -55,7 +56,9 @@ export default function ShopPage() {
             <div className="text-sm text-slate-400">当前魔力币</div>
             <div className="text-2xl font-bold text-yellow-300">{currency.coins}🪙</div>
           </div>
-          <div className="text-xs text-slate-500 mt-2">10 魔力币 ≈ 1 元兑换额度</div>
+          <div className="text-xs text-slate-500 mt-2">
+            1 魔力币 ≈ {COIN_TO_RMB} 元兑换额度
+          </div>
         </div>
         <div className="rounded-xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 to-cyan-500/5 p-4">
           <div className="flex items-center justify-between">

@@ -18,6 +18,11 @@ const SIZE_LABELS = TASK_SIZE_OPTIONS.reduce((acc, item) => {
   return acc;
 }, {});
 
+const SIZE_MINUTES = TASK_SIZE_OPTIONS.reduce((acc, item) => {
+  acc[item.value] = item.minutes;
+  return acc;
+}, {});
+
 function formatSanity(effect) {
   if (!effect?.sanity) return "🧠 0";
   return `🧠 ${effect.sanity > 0 ? "+" : ""}${effect.sanity}`;
@@ -81,6 +86,7 @@ export default function CustomTasksPage() {
       effect: reward.effect,
       isUserCreated: true,
       size: form.size,
+      minutes: SIZE_MINUTES[form.size],
       difficulty: Number(form.difficulty),
     });
 

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useWorld } from "./worldState";
+import { COIN_TO_RMB, STAT_LIMITS } from "../game/config";
 
 const PHASE_LABELS = {
   day: "白天",
@@ -10,15 +11,15 @@ const PHASE_LABELS = {
 };
 
 const STAT_META = [
-  { key: "hunger", label: "饱食", emoji: "🍞", color: "from-amber-400 to-orange-400" },
-  { key: "sanity", label: "精神", emoji: "🧠", color: "from-violet-400 to-fuchsia-400" },
-  { key: "health", label: "生命", emoji: "❤️", color: "from-rose-400 to-red-500" },
-  { key: "energy", label: "能量", emoji: "⚡", color: "from-sky-400 to-cyan-400" },
+  { key: "life", label: "生命", emoji: "❤️", color: "from-rose-400 to-red-500", max: STAT_LIMITS.life },
+  { key: "sanity", label: "精神", emoji: "🧠", color: "from-violet-400 to-fuchsia-400", max: STAT_LIMITS.sanity },
+  { key: "hunger", label: "饱食", emoji: "🍞", color: "from-amber-400 to-orange-400", max: STAT_LIMITS.hunger },
 ];
 
 export default function Page() {
-  const { hydrated, stats, world, currency, advancePhase } = useWorld();
+  const { hydrated, stats, world, currency, burst, advancePhase } = useWorld();
   const [message, setMessage] = useState("");
+  const coinRmb = (currency.coins * COIN_TO_RMB).toFixed(1);
 
   if (!hydrated) {
     return (
@@ -49,7 +50,7 @@ export default function Page() {
           人生 · 饥荒魔法版 LifeUP
         </h1>
         <p className="text-sm text-slate-400 max-w-2xl">
-          管理饱食、精神、生命与能量，穿行昼夜循环，用任务与事件雕刻你的荒野命运。
+          管理饱食、精神与生命，穿行昼夜循环，用任务与事件雕刻你的荒野命运。
         </p>
       </header>
 
@@ -61,22 +62,30 @@ export default function Page() {
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-4">
-          <h2 className="text-sm font-medium text-slate-100">🌑 荒野状态环</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-medium text-slate-100">🌑 荒野状态环</h2>
+            {burst?.comboCount > 1 && (
+              <div className="text-xs text-emerald-300">连击 x{burst.comboCount}</div>
+            )}
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {STAT_META.map((stat) => {
               const value = stats[stat.key];
+              const percent = Math.min(100, Math.round((value / stat.max) * 100));
               return (
                 <div key={stat.key} className="rounded-xl border border-slate-700 bg-slate-950/50 p-4">
                   <div className="flex items-center justify-between">
                     <div className="text-sm text-slate-300">
                       {stat.emoji} {stat.label}
                     </div>
-                    <div className="text-lg font-semibold text-slate-100">{value}</div>
+                    <div className="text-lg font-semibold text-slate-100">
+                      {value}/{stat.max}
+                    </div>
                   </div>
                   <div className="mt-3 h-2 rounded-full bg-slate-800 overflow-hidden">
                     <div
                       className={`h-full bg-gradient-to-r ${stat.color}`}
-                      style={{ width: `${value}%` }}
+                      style={{ width: `${percent}%` }}
                     />
                   </div>
                 </div>
@@ -121,6 +130,7 @@ export default function Page() {
           <div>
             <div className="text-xs text-slate-500">当前魔力币</div>
             <div className="text-2xl font-semibold text-amber-300">{currency.coins}🪙</div>
+            <div className="text-xs text-slate-500 mt-1">约等于 ¥{coinRmb}</div>
           </div>
           <div className="text-sm text-slate-400">完成任务获得魔力币，再兑换为游戏券</div>
         </div>

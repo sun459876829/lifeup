@@ -119,7 +119,8 @@ export async function POST(req) {
 
     // 3）灵感任务
     if (type === "ideaTasks") {
-      const { context, energy } = payload || {};
+      const { context, energy, sanity } = payload || {};
+      const focus = sanity ?? energy ?? "未知";
 
       const completion = await withTimeout(
         client.responses.create({
@@ -132,7 +133,7 @@ export async function POST(req) {
             },
             {
               role: "user",
-              content: `请基于这些长期项目，生成 5-10 个非常小、3-10 分钟可完成的任务。每个任务一句话。用 JSON：{ "tasks": ["xxx","yyy"] } 返回。\n长期项目：${context}\n当前精力水平：${energy}`,
+              content: `请基于这些长期项目，生成 5-10 个非常小、3-10 分钟可完成的任务。每个任务一句话。用 JSON：{ "tasks": ["xxx","yyy"] } 返回。\n长期项目：${context}\n当前精神/专注水平：${focus}`,
             },
           ],
           response_format: {

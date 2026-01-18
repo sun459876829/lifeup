@@ -3,19 +3,9 @@
 import { useMemo, useState } from "react";
 import { useWorld } from "../worldState";
 import { TASK_CATEGORIES, TASK_TEMPLATES } from "../gameConfig/tasksConfig";
-
-const GROWTH_CATEGORIES = new Set(["course", "english", "life", "future", "weight", "photo", "other"]);
+import { calculateReward, resolveTaskKind } from "../../game/config";
 
 function normalizeEffect(category, effect = {}) {
-  if (category === "nightclub") return effect;
-  if (GROWTH_CATEGORIES.has(category)) {
-    return {
-      hunger: Math.max(effect.hunger || 0, -2),
-      sanity: Math.max(effect.sanity || 0, 0),
-      health: Math.max(effect.health || 0, 0),
-      energy: Math.max(effect.energy || 0, -2),
-    };
-  }
   return effect;
 }
 
@@ -24,8 +14,7 @@ function formatEffect(category, effect = {}) {
   const labels = [];
   if (normalized.hunger) labels.push(`🍞 ${normalized.hunger > 0 ? "+" : ""}${normalized.hunger} 饱食`);
   if (normalized.sanity) labels.push(`🧠 ${normalized.sanity > 0 ? "+" : ""}${normalized.sanity} 精神`);
-  if (normalized.health) labels.push(`❤️ ${normalized.health > 0 ? "+" : ""}${normalized.health} 生命`);
-  if (normalized.energy) labels.push(`⚡ ${normalized.energy > 0 ? "+" : ""}${normalized.energy} 能量`);
+  if (normalized.life) labels.push(`❤️ ${normalized.life > 0 ? "+" : ""}${normalized.life} 生命`);
   return labels;
 }
 
@@ -60,20 +49,20 @@ export default function TasksPage() {
       setTimeout(() => setMessage(""), 3000);
       return;
     }
-    const bonusNote =
-      result.bonusExp || result.bonusSanity
-        ? `（连击奖励 +${result.bonusExp} EXP · 🧠 +${result.bonusSanity}）`
-        : "";
-    setMessage(`✨ 完成任务，获得 ${result.rewardCoins}🪙 + ${result.rewardExp} EXP ${bonusNote}`);
+    const burstRate = Math.round((result.burstBonus || 0) * 100);
+    const comboNote =
+      result.comboCount > 1 && burstRate > 0 ? `连击 x${result.comboCount}，额外奖励 +${burstRate}%！` : "";
+    setMessage(
+      `✨ 完成任务，获得 ${result.rewardCoins}🪙 + ${result.rewardExp} EXP ${comboNote}`.trim()
+    );
     setTimeout(() => setMessage(""), 3000);
   }
 
   function canAccept(template) {
     if (!template.requirements) return true;
-    if (template.requirements.energy && stats.energy < template.requirements.energy) return false;
     if (template.requirements.hunger && stats.hunger < template.requirements.hunger) return false;
     if (template.requirements.sanity && stats.sanity < template.requirements.sanity) return false;
-    if (template.requirements.health && stats.health < template.requirements.health) return false;
+    if (template.requirements.life && stats.life < template.requirements.life) return false;
 
     if (template.prerequisites?.length) {
       const unlockedKeys = new Set(achievements.filter((a) => a.unlocked).map((a) => a.key));
@@ -108,9 +97,9 @@ export default function TasksPage() {
         <p className="text-sm text-slate-400">
           接受任务 → 完成任务 → 资源与成就推进。每个任务都像饥荒里的「砍一棵树」。
         </p>
-        <div className="text-xs text-slate-500">
-          今日完成 {burst?.total || 0} 次任务 · 课程连击 {burst?.byCategory?.course || 0} 次
-        </div>
+        {burst?.comboCount > 1 && (
+          <div className="text-xs text-slate-500">当前连击 x{burst.comboCount}</div>
+        )}
       </header>
 
       {message && (
@@ -134,6 +123,12 @@ export default function TasksPage() {
                 {(groupedTemplates[category.key] || []).map((template) => {
                   const effects = formatEffect(template.category, template.effect);
                   const canTake = canAccept(template);
+                  const baseReward = calculateReward({
+                    difficulty: template.difficulty || 1,
+                    minutes: template.minutes || 10,
+                    kind: resolveTaskKind(template.category, template.kind),
+                    comboCount: 1,
+                  });
                   return (
                     <div
                       key={`${category.key}-${template.title}`}
@@ -150,10 +145,10 @@ export default function TasksPage() {
                             <div className="text-xs text-slate-500">{template.subtype}</div>
                           )}
                         </div>
-                        <span className="text-xs text-slate-500">EXP {template.exp}</span>
+                        <span className="text-xs text-slate-500">EXP {baseReward.exp}</span>
                       </div>
                       <div className="flex flex-wrap gap-2 text-xs text-slate-400">
-                        <span>🪙 {template.coinsReward}</span>
+                        <span>🪙 {baseReward.coins}</span>
                         {template.isRepeatable && <span>🔁 可重复</span>}
                       </div>
                       {effects.length > 0 && (
