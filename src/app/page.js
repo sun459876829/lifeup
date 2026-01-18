@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useWorld } from "./worldState";
 import { COIN_TO_RMB, STAT_LIMITS } from "../game/config";
@@ -17,7 +18,7 @@ const STAT_META = [
 ];
 
 export default function Page() {
-  const { hydrated, stats, world, currency, burst, advancePhase } = useWorld();
+  const { hydrated, stats, world, currency, burst, advancePhase, undoLastAction } = useWorld();
   const [message, setMessage] = useState("");
   const coinRmb = (currency.coins * COIN_TO_RMB).toFixed(1);
 
@@ -40,6 +41,16 @@ export default function Page() {
     setTimeout(() => setMessage(""), 2000);
   }
 
+  function handleUndo() {
+    const result = undoLastAction();
+    if (result?.ok) {
+      setMessage("已撤销上一条操作");
+    } else {
+      setMessage(result?.error || "没有可撤销的记录");
+    }
+    setTimeout(() => setMessage(""), 2000);
+  }
+
   return (
     <div className="space-y-6">
       <header className="space-y-3">
@@ -59,6 +70,27 @@ export default function Page() {
           {message}
         </div>
       )}
+
+      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+        <div>
+          <div className="text-sm font-medium text-slate-100">🕒 历史记录 & 撤销</div>
+          <div className="text-xs text-slate-500 mt-1">误点完成任务或误用券时，可以在这里撤销。</div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/history"
+            className="rounded-lg border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 hover:border-violet-400 hover:text-violet-200 transition"
+          >
+            查看历史记录
+          </Link>
+          <button
+            onClick={handleUndo}
+            className="rounded-lg bg-rose-500/80 hover:bg-rose-500 px-4 py-2 text-sm font-medium text-white transition"
+          >
+            撤销上一步
+          </button>
+        </div>
+      </section>
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-4">

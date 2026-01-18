@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/treasure", label: "藏宝图" },
   { href: "/shop", label: "商店" },
   { href: "/inventory", label: "背包" },
+  { href: "/history", label: "历史" },
   { href: "/profile", label: "档案" },
 ];
 

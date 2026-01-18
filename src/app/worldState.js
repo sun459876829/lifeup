@@ -4,6 +4,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { RANDOM_EVENTS } from "./gameConfig/randomEventsConfig";
 import { ACHIEVEMENTS_CONFIG } from "./gameConfig/achievementsConfig";
 import { calculateReward, getSanityGain, resolveTaskKind, STAT_LIMITS } from "../game/config";
+import {
+  loadHistory,
+  pushHistory as pushHistoryEntry,
+  undoLastAction as undoHistoryLastAction,
+} from "../game/history";
 
 const STORAGE_KEY = "lifeup.arcane.v4";
 const LEGACY_KEYS = ["lifeup.arcane.v3", "lifeup.world.v1", "lifeup.magicworld.v1"];
@@ -24,8 +29,6 @@ const DEFAULT_BURST = {
   lastKind: null,
   comboCount: 0,
 };
-
-const HISTORY_LIMIT = 200;
 
 function newId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -93,6 +96,7 @@ function createDefaultState() {
     stats: { ...DEFAULT_STATS },
     world: { ...DEFAULT_WORLD },
     currency: { coins: 0 },
+    exp: 0,
     tickets: { game: 0 },
     tasks: [],
     completedTasks: [],
@@ -101,34 +105,6 @@ function createDefaultState() {
     achievements: initializeAchievements(),
     burst: { ...DEFAULT_BURST },
     history: [],
-  };
-}
-
-function deepClone(value) {
-  if (typeof structuredClone === "function") {
-    return structuredClone(value);
-  }
-  return JSON.parse(JSON.stringify(value));
-}
-
-function createSnapshotFromState(state) {
-  const { history, ...rest } = state || {};
-  return deepClone(rest);
-}
-
-function pushHistoryEntry(state, label, meta) {
-  const snapshot = createSnapshotFromState(state);
-  const entry = {
-    id: newId(),
-    at: Date.now(),
-    label,
-    meta,
-    snapshot,
-  };
-  const nextHistory = [entry, ...(state.history || [])].slice(0, HISTORY_LIMIT);
-  return {
-    ...state,
-    history: nextHistory,
   };
 }
 
@@ -153,6 +129,7 @@ function migrateLegacyState(raw) {
   if (!raw || typeof raw !== "object") return base;
 
   const coins = raw.currency?.coins ?? raw.coins ?? base.currency.coins;
+  const exp = raw.exp ?? raw.xp ?? base.exp;
   const tickets = {
     game: raw.tickets?.game ?? base.tickets.game,
   };
@@ -218,6 +195,7 @@ function migrateLegacyState(raw) {
   return {
     ...base,
     currency: { coins },
+    exp,
     tickets,
     claims,
     tasks,
@@ -241,6 +219,7 @@ function loadState() {
         stats: normalizeStats(parsed.stats || parsed),
         world,
         currency: { coins: parsed.currency?.coins ?? 0 },
+        exp: parsed.exp ?? parsed.xp ?? 0,
         tickets: { game: parsed.tickets?.game ?? 0 },
         tasks: Array.isArray(parsed.tasks)
           ? parsed.tasks.map((task) => ({
@@ -255,7 +234,7 @@ function loadState() {
         claims: Array.isArray(parsed.claims) ? parsed.claims : [],
         achievements: initializeAchievements(parsed.achievements),
         burst: normalizeBurst(parsed.burst),
-        history: Array.isArray(parsed.history) ? parsed.history : [],
+        history: loadHistory(),
       };
     }
 
@@ -278,7 +257,8 @@ function loadState() {
 function saveState(state) {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const { history, ...rest } = state || {};
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(rest));
   } catch (error) {
     console.error("Failed to save world state", error);
   }
@@ -653,24 +633,17 @@ export function WorldProvider({ children }) {
 
       const beforeCoins = prev.currency.coins;
       const afterCoins = beforeCoins - cost;
-      const nextState = pushHistoryEntry(prev, "兑换游戏券", {
-        type: "exchange_game_ticket",
-        cost,
-        beforeCoins,
-        afterCoins,
-      });
-
       result = { ok: true, message: "✅ 已兑换 1 张游戏券" };
 
       return {
-        ...nextState,
+        ...prev,
         currency: {
-          ...nextState.currency,
+          ...prev.currency,
           coins: afterCoins,
         },
         tickets: {
-          ...nextState.tickets,
-          game: (nextState.tickets?.game || 0) + 1,
+          ...prev.tickets,
+          game: (prev.tickets?.game || 0) + 1,
         },
       };
     });
@@ -689,13 +662,25 @@ export function WorldProvider({ children }) {
         return prev;
       }
 
-      const nextState = pushHistoryEntry(prev, "使用游戏券", { type: "use_game_ticket" });
+      const nextHistory = pushHistoryEntry(
+        {
+          kind: "ticket_use",
+          payload: {
+            ticketId: "game",
+            ticketName: "游戏券",
+            previousUsedFlag: false,
+            previousCount: currentTickets,
+          },
+        },
+        prev.history
+      );
       result = { ok: true, message: "🎮 你使用了 1 张游戏券，可以安心玩一会儿游戏了" };
 
       return {
-        ...nextState,
+        ...prev,
+        history: nextHistory,
         tickets: {
-          ...nextState.tickets,
+          ...prev.tickets,
           game: currentTickets - 1,
         },
       };
@@ -789,10 +774,7 @@ export function WorldProvider({ children }) {
     const normalizedBurst = normalizeBurst(state.burst);
     const normalizedState = normalizedBurst === state.burst ? state : { ...state, burst: normalizedBurst };
 
-    const baseState = pushHistoryEntry(normalizedState, `完成任务：${task.title}`, {
-      type: "task_complete",
-      taskId,
-    });
+    const baseState = normalizedState;
 
     const rewardModifier = calculateRewardModifier(baseState.world.randomEvent, task.category);
     const meta = normalizeTaskMeta(task);
@@ -814,6 +796,11 @@ export function WorldProvider({ children }) {
     const rewardCoins = Math.max(0, Math.round(baseReward.coins * rewardModifier.coinMultiplier));
 
     const completedAt = Date.now();
+
+    const previousStatus = task.status;
+    const previousCompletedAt = task.completedAt;
+    const previousLastCompletedAt = task.lastCompletedAt;
+    const newStatus = task.isRepeatable ? "todo" : "done";
 
     let updatedTasks = (baseState.tasks || []).map((item) => {
       if (item.id !== taskId) return item;
@@ -847,6 +834,11 @@ export function WorldProvider({ children }) {
       sanity: baseState.stats.sanity + (taskEffect.sanity || 0) + baseSanityGain,
       life: baseState.stats.life + (taskEffect.life || 0),
     });
+    const statsDelta = {
+      hunger: updatedStats.hunger - baseState.stats.hunger,
+      sanity: updatedStats.sanity - baseState.stats.sanity,
+      life: updatedStats.life - baseState.stats.life,
+    };
 
     const completedEntry = {
       id: newId(),
@@ -861,6 +853,27 @@ export function WorldProvider({ children }) {
       tags: task.tags || [],
     };
 
+    const nextHistory = pushHistoryEntry(
+      {
+        kind: "task_complete",
+        payload: {
+          taskId: task.id,
+          taskTitle: task.title,
+          previousStatus,
+          newStatus,
+          coinsDelta: rewardCoins,
+          expDelta: rewardExp,
+          completedAt,
+          previousCompletedAt,
+          previousLastCompletedAt,
+          statsDelta,
+          previousBurst: baseState.burst,
+          nextBurst: updatedBurst,
+        },
+      },
+      baseState.history
+    );
+
     let nextState = {
       ...baseState,
       stats: updatedStats,
@@ -870,7 +883,9 @@ export function WorldProvider({ children }) {
         ...baseState.currency,
         coins: baseState.currency.coins + rewardCoins,
       },
+      exp: (baseState.exp || 0) + rewardExp,
       burst: updatedBurst,
+      history: nextHistory,
     };
 
     nextState = progressTreasureMapsInternal(nextState, task);
@@ -964,10 +979,7 @@ export function WorldProvider({ children }) {
     if (map.status === "completed") return { ok: false, message: "藏宝图已完成" };
     if (map.completedTasks < map.targetTasks) return { ok: false, message: "进度不足" };
 
-    let updatedState = pushHistoryEntry(state, `开启藏宝图奖励：${map.name}`, {
-      type: "treasure_open",
-      mapId,
-    });
+    let updatedState = { ...state };
 
     if (map.bigReward?.coins) {
       updatedState.currency = {
@@ -1026,48 +1038,33 @@ export function WorldProvider({ children }) {
     setState((prev) => {
       const claim = (prev.claims || []).find((item) => item.id === claimId);
       if (!claim || claim.used) return prev;
-      const nextState = pushHistoryEntry(prev, `标记徽章：${claim.name}`, {
-        type: "claim_use",
-        claimId,
-      });
       return {
-        ...nextState,
-        claims: (nextState.claims || []).map((item) =>
+        ...prev,
+        claims: (prev.claims || []).map((item) =>
           item.id === claimId ? { ...item, used: true } : item
         ),
       };
     });
   }, [state]);
 
-  const pushHistory = useCallback((label, meta) => {
-    if (!state || !label) return;
-    setState((prev) => pushHistoryEntry(prev, label, meta));
+  const pushHistory = useCallback((entry) => {
+    if (!state || !entry?.kind) return;
+    setState((prev) => ({
+      ...prev,
+      history: pushHistoryEntry(entry, prev.history),
+    }));
   }, [state]);
 
   const undoLastAction = useCallback(() => {
-    if (!state?.history?.length) return false;
-    setState((prev) => {
-      const [latest, ...rest] = prev.history || [];
-      if (!latest?.snapshot) return prev;
-      return {
-        ...deepClone(latest.snapshot),
-        history: rest,
-      };
+    if (!state) return { ok: false, error: "世界尚未加载" };
+    const result = undoHistoryLastAction({ state, history: state.history });
+    if (!result.ok) return result;
+    const nextState = recalculateAchievements(result.state);
+    setState({
+      ...nextState,
+      history: result.history,
     });
-    return true;
-  }, [state]);
-
-  const restoreFromHistory = useCallback((entryId) => {
-    if (!state?.history?.length) return false;
-    const entryIndex = state.history.findIndex((item) => item.id === entryId);
-    if (entryIndex < 0) return false;
-    const entry = state.history[entryIndex];
-    if (!entry?.snapshot) return false;
-    setState(() => ({
-      ...deepClone(entry.snapshot),
-      history: state.history.slice(entryIndex),
-    }));
-    return true;
+    return { ok: true };
   }, [state]);
 
   const unlockAchievement = useCallback((key) => {
@@ -1120,6 +1117,7 @@ export function WorldProvider({ children }) {
     stats: state?.stats || { ...DEFAULT_STATS },
     world: state?.world || { ...DEFAULT_WORLD },
     currency: state?.currency || { coins: 0 },
+    exp: state?.exp ?? 0,
     tickets: state?.tickets || { game: 0 },
     tasks: state?.tasks || [],
     completedTasks: state?.completedTasks || [],
@@ -1143,7 +1141,6 @@ export function WorldProvider({ children }) {
     useClaim,
     pushHistory,
     undoLastAction,
-    restoreFromHistory,
     unlockAchievement,
     updateAchievementProgress,
     removeTask,
@@ -1165,7 +1162,6 @@ export function WorldProvider({ children }) {
     useClaim,
     pushHistory,
     undoLastAction,
-    restoreFromHistory,
     unlockAchievement,
     updateAchievementProgress,
     removeTask,
