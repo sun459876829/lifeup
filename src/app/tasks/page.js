@@ -5,6 +5,22 @@ import { useWorld } from "../worldState";
 import { TASK_CATEGORIES, TASK_TEMPLATES } from "../gameConfig/tasksConfig";
 import { calculateReward, resolveTaskKind } from "../../game/config";
 
+const CUSTOM_CATEGORY_LABELS = {
+  study: "学习",
+  money: "工作赚钱",
+  life: "生活整理",
+  body: "运动身体",
+  social: "社交",
+  misc: "其他",
+};
+
+const SYSTEM_CATEGORY_LABELS = TASK_CATEGORIES.reduce((acc, item) => {
+  acc[item.key] = item.label;
+  return acc;
+}, {});
+
+const CATEGORY_LABELS = { ...SYSTEM_CATEGORY_LABELS, ...CUSTOM_CATEGORY_LABELS };
+
 function normalizeEffect(category, effect = {}) {
   return effect;
 }
@@ -16,6 +32,15 @@ function formatEffect(category, effect = {}) {
   if (normalized.sanity) labels.push(`🧠 ${normalized.sanity > 0 ? "+" : ""}${normalized.sanity} 精神`);
   if (normalized.life) labels.push(`❤️ ${normalized.life > 0 ? "+" : ""}${normalized.life} 生命`);
   return labels;
+}
+
+function formatDifficulty(level) {
+  const value = Math.min(5, Math.max(1, Number(level) || 1));
+  return `${"★".repeat(value)}${"☆".repeat(5 - value)}`;
+}
+
+function resolveCategoryLabel(category) {
+  return CATEGORY_LABELS[category] || category || "其他";
 }
 
 export default function TasksPage() {
@@ -191,15 +216,31 @@ export default function TasksPage() {
           <div className="space-y-3">
             {todoTasks.map((task) => {
               const effects = formatEffect(task.category, task.effect);
+              const resolvedKind = task.kind || resolveTaskKind(task.category, task.kind);
+              const rewardPreview = calculateReward({
+                difficulty: task.difficulty || 1,
+                minutes: task.minutes || 10,
+                kind: resolvedKind,
+                comboCount: 1,
+              });
               const canComplete = true;
               return (
                 <div key={task.id} className="rounded-xl border border-slate-700 bg-slate-950/50 p-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-sm font-medium text-slate-200">{task.title}</div>
-                      <div className="text-xs text-slate-500">{task.category}</div>
+                      <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-400">
+                        <span className="rounded-full border border-slate-700 bg-slate-900/70 px-2 py-0.5">
+                          {resolveCategoryLabel(task.category)}
+                        </span>
+                        <span className="rounded-full border border-slate-700 bg-slate-900/70 px-2 py-0.5">
+                          难度 {formatDifficulty(task.difficulty)}
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-xs text-slate-400">EXP {task.exp}</span>
+                    <span className="text-xs text-slate-400">
+                      预计 EXP {rewardPreview.exp}
+                    </span>
                   </div>
                   {effects.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
@@ -215,7 +256,7 @@ export default function TasksPage() {
                   )}
                   <div className="mt-3 flex items-center justify-between">
                     <div className="text-xs text-slate-500">
-                      奖励 🪙 {task.coinsReward} · {task.isRepeatable ? "可重复" : "一次性"}
+                      预计奖励 🪙 {rewardPreview.coins} · {task.isRepeatable ? "可重复" : "一次性"}
                     </div>
                     <button
                       onClick={() => handleComplete(task.id)}

@@ -1,59 +1,54 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useMemo, useRef, useState } from "react";
 import { useWorld } from "../worldState";
-import { computeRewardsForTask, TASK_SIZE_OPTIONS } from "../gameConfig/taskRewards";
+import { calculateReward } from "../../game/config";
 
 const CATEGORY_OPTIONS = [
-  { value: "life", label: "生活" },
-  { value: "other", label: "购物" },
-  { value: "course", label: "学习" },
-  { value: "future", label: "工作" },
-  { value: "other", label: "情绪" },
-  { value: "other", label: "其他" },
+  { value: "study", label: "学习", kind: "study" },
+  { value: "money", label: "工作赚钱", kind: "money" },
+  { value: "life", label: "生活整理", kind: "life" },
+  { value: "body", label: "运动身体", kind: "body" },
+  { value: "social", label: "社交", kind: "social" },
+  { value: "misc", label: "其他", kind: "misc" },
 ];
 
-const SIZE_LABELS = TASK_SIZE_OPTIONS.reduce((acc, item) => {
-  acc[item.value] = item.label;
-  return acc;
-}, {});
+const DIFFICULTY_OPTIONS = [
+  { value: 1, label: "1 · 超轻松" },
+  { value: 2, label: "2 · 普通" },
+  { value: 3, label: "3 · 有点难" },
+  { value: 4, label: "4 · 挑战" },
+  { value: 5, label: "5 · 史诗任务" },
+];
 
-const SIZE_MINUTES = TASK_SIZE_OPTIONS.reduce((acc, item) => {
-  acc[item.value] = item.minutes;
-  return acc;
-}, {});
-
-function formatSanity(effect) {
-  if (!effect?.sanity) return "🧠 0";
-  return `🧠 ${effect.sanity > 0 ? "+" : ""}${effect.sanity}`;
+function resolveCategoryKind(category) {
+  return CATEGORY_OPTIONS.find((option) => option.value === category)?.kind || "misc";
 }
 
 export default function CustomTasksPage() {
-  const { hydrated, tasks, registerTask, removeTask } = useWorld();
+  const { hydrated, registerTask } = useWorld();
+  const titleRef = useRef(null);
   const [form, setForm] = useState({
     title: "",
     category: "",
-    size: "",
     difficulty: "",
-    isRepeatable: true,
+    minutes: "30",
+    notes: "",
   });
-  const [message, setMessage] = useState("");
+  const [feedback, setFeedback] = useState(null);
 
-  const preview = useMemo(
-    () =>
-      computeRewardsForTask({
-        size: form.size,
-        difficulty: form.difficulty,
-        category: form.category || "other",
-        isUserCreated: true,
-      }),
-    [form.size, form.difficulty, form.category]
-  );
-
-  const customTasks = useMemo(
-    () => tasks.filter((task) => task.isUserCreated),
-    [tasks]
-  );
+  const rewardPreview = useMemo(() => {
+    const minutesValue = Number(form.minutes);
+    const difficultyValue = Number(form.difficulty);
+    if (!minutesValue || !difficultyValue) return null;
+    return calculateReward({
+      difficulty: difficultyValue,
+      minutes: minutesValue,
+      kind: resolveCategoryKind(form.category),
+      comboCount: 1,
+    });
+  }, [form.category, form.difficulty, form.minutes]);
 
   function handleChange(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -61,49 +56,68 @@ export default function CustomTasksPage() {
 
   function handleSubmit(event) {
     event.preventDefault();
-    if (!form.title.trim()) {
-      setMessage("请先填写任务名称");
+    const title = form.title.trim();
+    if (!title) {
+      setFeedback({ type: "error", text: "请先填写任务标题。" });
       return;
     }
-    if (!form.size || !form.difficulty) {
-      setMessage("请选择任务体量与难度");
+    if (!form.category) {
+      setFeedback({ type: "error", text: "请选择任务分类。" });
       return;
     }
 
-    const reward = computeRewardsForTask({
-      size: form.size,
-      difficulty: form.difficulty,
-      category: form.category || "other",
-      isUserCreated: true,
+    const minutesValue = Number(form.minutes);
+    const difficultyValue = Number(form.difficulty);
+
+    if (!minutesValue || minutesValue < 5 || minutesValue > 180) {
+      setFeedback({ type: "error", text: "时长建议填写 5～180 分钟。" });
+      return;
+    }
+    if (!difficultyValue || difficultyValue < 1 || difficultyValue > 5) {
+      setFeedback({ type: "error", text: "请选择任务难度。" });
+      return;
+    }
+
+    const preview = calculateReward({
+      difficulty: difficultyValue,
+      minutes: minutesValue,
+      kind: resolveCategoryKind(form.category),
+      comboCount: 1,
     });
 
     const created = registerTask({
-      title: form.title.trim(),
-      category: form.category || "other",
-      isRepeatable: form.isRepeatable,
-      exp: reward.exp,
-      coinsReward: reward.coinsReward,
-      effect: reward.effect,
+      title,
+      category: form.category,
+      notes: form.notes.trim(),
+      difficulty: difficultyValue,
+      minutes: minutesValue,
+      kind: resolveCategoryKind(form.category),
+      exp: preview.exp,
+      coinsReward: preview.coins,
+      rewardPreview: { coins: preview.coins, exp: preview.exp },
+      isRepeatable: true,
       isUserCreated: true,
-      size: form.size,
-      minutes: SIZE_MINUTES[form.size],
-      difficulty: Number(form.difficulty),
     });
 
     if (created) {
-      setMessage(`已创建任务：${created.title}`);
+      setFeedback({
+        type: "success",
+        text: `创建成功：${created.title}`,
+        reward: preview,
+      });
       setForm({
         title: "",
         category: "",
-        size: "",
         difficulty: "",
-        isRepeatable: true,
+        minutes: "30",
+        notes: "",
       });
     }
   }
 
-  function handleDelete(taskId) {
-    removeTask(taskId);
+  function handleCreateAnother() {
+    setFeedback(null);
+    titleRef.current?.focus();
   }
 
   if (!hydrated) {
@@ -113,7 +127,7 @@ export default function CustomTasksPage() {
           <div className="text-xs tracking-[0.3em] uppercase text-slate-500">
             LifeUP · Arcane Wilderness
           </div>
-          <div className="text-lg text-slate-100">正在加载任务工坊…</div>
+          <div className="text-lg text-slate-100">正在加载自定义任务…</div>
         </div>
       </div>
     );
@@ -123,174 +137,162 @@ export default function CustomTasksPage() {
     <div className="space-y-6">
       <header className="space-y-2">
         <h1 className="text-3xl font-semibold bg-gradient-to-r from-violet-300 via-sky-200 to-emerald-300 bg-clip-text text-transparent">
-          🧪 自定义任务工坊
+          🧩 自定义任务
         </h1>
         <p className="text-sm text-slate-400">
-          这里适合加：临时要去买东西、回消息、做一个小决定这种一小步任务。
+          在这里可以为现实生活中的事情创建新任务，选难度、时长，系统自动计算奖励。
         </p>
-        <p className="text-xs text-slate-500">大任务可以拆成多个小任务来创建。</p>
       </header>
 
-      {message && (
-        <div className="rounded-lg bg-violet-500/20 border border-violet-500/40 p-3 text-sm text-violet-100">
-          {message}
+      {feedback && (
+        <div
+          className={`rounded-lg border p-4 text-sm ${
+            feedback.type === "success"
+              ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-100"
+              : "bg-rose-500/20 border-rose-500/40 text-rose-100"
+          }`}
+        >
+          <div className="font-medium">{feedback.text}</div>
+          {feedback.type === "success" && feedback.reward && (
+            <div className="mt-2 text-xs text-emerald-200">
+              奖励预览：{feedback.reward.coins} coin，{feedback.reward.exp} EXP（当前连击可能进一步提高）
+            </div>
+          )}
+          {feedback.type === "success" && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleCreateAnother}
+                className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-100"
+              >
+                再创建一个
+              </button>
+              <Link
+                href="/tasks"
+                className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1 text-xs text-slate-200"
+              >
+                返回任务列表
+              </Link>
+            </div>
+          )}
         </div>
       )}
 
-      <section className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-5">
-        <h2 className="text-sm font-medium text-slate-100">📝 创建任务</h2>
-        <form className="space-y-4" onSubmit={handleSubmit}>
-          <div className="space-y-2">
-            <label className="text-xs text-slate-400" htmlFor="task-title">
-              任务名称（必填）
-            </label>
-            <input
-              id="task-title"
-              type="text"
-              value={form.title}
-              onChange={(event) => handleChange("title", event.target.value)}
-              placeholder="例如：去买水果 / 回重要消息"
-              className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
-              required
-            />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
+      <section className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
-              <label className="text-xs text-slate-400" htmlFor="task-category">
-                分类（可选）
+              <label className="text-xs text-slate-400" htmlFor="task-title">
+                标题（必填）
               </label>
-              <select
-                id="task-category"
-                value={form.category}
-                onChange={(event) => handleChange("category", event.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
-              >
-                <option value="">请选择分类</option>
-                {CATEGORY_OPTIONS.map((option) => (
-                  <option key={`${option.label}-${option.value}`} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              <input
+                id="task-title"
+                ref={titleRef}
+                type="text"
+                value={form.title}
+                onChange={(event) => handleChange("title", event.target.value)}
+                placeholder="例如：整理桌面 30 分钟"
+                className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+                required
+              />
             </div>
 
-            <div className="space-y-2">
-              <span className="text-xs text-slate-400">任务体量</span>
-              <div className="flex flex-wrap gap-2">
-                {TASK_SIZE_OPTIONS.map((option) => (
-                  <label
-                    key={option.value}
-                    className={`px-3 py-1.5 rounded-full text-xs border transition cursor-pointer ${
-                      form.size === option.value
-                        ? "bg-violet-500/30 border-violet-400 text-violet-100"
-                        : "bg-slate-900/70 border-slate-700 text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="task-size"
-                      value={option.value}
-                      checked={form.size === option.value}
-                      onChange={(event) => handleChange("size", event.target.value)}
-                      className="sr-only"
-                    />
-                    {option.label}
-                  </label>
-                ))}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-xs text-slate-400" htmlFor="task-category">
+                  分类
+                </label>
+                <select
+                  id="task-category"
+                  value={form.category}
+                  onChange={(event) => handleChange("category", event.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+                  required
+                >
+                  <option value="">请选择分类</option>
+                  {CATEGORY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs text-slate-400" htmlFor="task-minutes">
+                  预估时长（分钟）
+                </label>
+                <input
+                  id="task-minutes"
+                  type="number"
+                  min={5}
+                  max={180}
+                  step={5}
+                  value={form.minutes}
+                  onChange={(event) => handleChange("minutes", event.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+                />
               </div>
             </div>
-          </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-xs text-slate-400" htmlFor="task-difficulty">
-                难度（1~5）
-              </label>
-              <select
-                id="task-difficulty"
-                value={form.difficulty}
-                onChange={(event) => handleChange("difficulty", event.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
-              >
-                <option value="">选择难度</option>
-                {[1, 2, 3, 4, 5].map((level) => (
-                  <option key={level} value={level}>
-                    {level}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-xs text-slate-400" htmlFor="task-difficulty">
+                  难度（1～5）
+                </label>
+                <select
+                  id="task-difficulty"
+                  value={form.difficulty}
+                  onChange={(event) => handleChange("difficulty", event.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+                  required
+                >
+                  <option value="">选择难度</option>
+                  {DIFFICULTY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            <div className="space-y-2">
-              <span className="text-xs text-slate-400">是否可重复</span>
-              <label className="flex items-center gap-2 text-sm text-slate-200">
-                <input
-                  type="checkbox"
-                  checked={form.isRepeatable}
-                  onChange={(event) => handleChange("isRepeatable", event.target.checked)}
-                  className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-violet-500 focus:ring-violet-500"
+              <div className="space-y-2">
+                <label className="text-xs text-slate-400" htmlFor="task-notes">
+                  备注（可选）
+                </label>
+                <textarea
+                  id="task-notes"
+                  value={form.notes}
+                  onChange={(event) => handleChange("notes", event.target.value)}
+                  placeholder="补充说明、注意事项…"
+                  rows={3}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
                 />
-                默认可重复
-              </label>
+              </div>
             </div>
-          </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-            <div className="text-xs text-slate-400">预览奖励</div>
-            {form.size && form.difficulty ? (
-              <div className="mt-2 flex flex-wrap gap-3 text-sm text-slate-200">
-                <span>预计 EXP {preview.exp}</span>
-                <span>预计魔力币 {preview.coinsReward}</span>
-                <span>预计精神 {formatSanity(preview.effect)}</span>
+            <button
+              type="submit"
+              className="w-full rounded-lg bg-violet-500/80 hover:bg-violet-500 text-white text-sm font-medium py-2 transition"
+            >
+              创建任务
+            </button>
+          </form>
+
+          <aside className="rounded-xl border border-slate-800 bg-slate-950/60 p-4 h-fit">
+            <div className="text-xs text-slate-400">预计奖励预览</div>
+            {rewardPreview ? (
+              <div className="mt-3 space-y-2 text-sm text-slate-200">
+                <div className="text-base font-semibold">
+                  {rewardPreview.coins} coin · {rewardPreview.exp} EXP
+                </div>
+                <div className="text-xs text-slate-400">当前连击可能进一步提高。</div>
               </div>
             ) : (
-              <div className="mt-2 text-xs text-slate-500">选择体量与难度后显示预估奖励。</div>
+              <div className="mt-3 text-xs text-slate-500">选择难度与时长后显示预估奖励。</div>
             )}
-          </div>
-
-          <button
-            type="submit"
-            className="w-full rounded-lg bg-violet-500/80 hover:bg-violet-500 text-white text-sm font-medium py-2 transition"
-          >
-            创建任务
-          </button>
-        </form>
-      </section>
-
-      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4">
-        <h2 className="text-sm font-medium text-slate-100">📌 我的自定义任务</h2>
-        {customTasks.length === 0 ? (
-          <div className="text-sm text-slate-500">暂时还没有自定义任务。</div>
-        ) : (
-          <div className="space-y-3">
-            {customTasks.map((task) => (
-              <div key={task.id} className="rounded-xl border border-slate-700 bg-slate-950/50 p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-medium text-slate-200">{task.title}</div>
-                    <div className="text-xs text-slate-500">
-                      {task.category || "其他"} · {SIZE_LABELS[task.size] || "-"} · 难度 {task.difficulty || "-"}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(task.id)}
-                    className="text-xs text-rose-300 hover:text-rose-200"
-                  >
-                    删除
-                  </button>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
-                  <span>EXP {task.exp}</span>
-                  <span>🪙 {task.coinsReward}</span>
-                  <span>{formatSanity(task.effect)}</span>
-                  {task.isRepeatable && <span>🔁 可重复</span>}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+          </aside>
+        </div>
       </section>
     </div>
   );
