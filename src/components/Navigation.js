@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: "/treasure", label: "远征", emoji: "🗺️" },
   { href: "/shop", label: "商店", emoji: "🛒" },
   { href: "/inventory", label: "背包", emoji: "🎒" },
+  { href: "/history", label: "历史", emoji: "🕒" },
 ];
 
 export default function Navigation() {
