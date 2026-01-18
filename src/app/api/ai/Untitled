@@ -90,7 +90,8 @@ export async function POST(req) {
     }
 
     if (type === "ideaTasks") {
-      const { context, energy } = payload;
+      const { context, energy, sanity } = payload;
+      const focus = sanity ?? energy ?? "未知";
 
       const completion = await client.responses.create({
         model: "gpt-4.1-mini",
@@ -102,7 +103,7 @@ export async function POST(req) {
           },
           {
             role: "user",
-            content: `请基于这些长期项目，生成 5-10 个非常小、3-10 分钟可完成的任务。每个任务一句话。用 JSON 数组返回，例如 ["xxx","yyy"]。\n长期项目：${context}\n当前精力水平：${energy}`,
+            content: `请基于这些长期项目，生成 5-10 个非常小、3-10 分钟可完成的任务。每个任务一句话。用 JSON 数组返回，例如 ["xxx","yyy"]。\n长期项目：${context}\n当前精神/专注水平：${focus}`,
           },
         ],
         response_format: {

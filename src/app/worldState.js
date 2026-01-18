@@ -3,15 +3,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { RANDOM_EVENTS } from "./gameConfig/randomEventsConfig";
 import { ACHIEVEMENTS_CONFIG } from "./gameConfig/achievementsConfig";
+import { calculateReward, getSanityGain, resolveTaskKind, STAT_LIMITS } from "../game/config";
 
-const STORAGE_KEY = "lifeup.arcane.v3";
-const LEGACY_KEYS = ["lifeup.world.v1", "lifeup.magicworld.v1"];
+const STORAGE_KEY = "lifeup.arcane.v4";
+const LEGACY_KEYS = ["lifeup.arcane.v3", "lifeup.world.v1", "lifeup.magicworld.v1"];
 
 const DEFAULT_STATS = {
-  hunger: 70,
+  life: 80,
   sanity: 70,
-  health: 80,
-  energy: 80,
+  hunger: 70,
 };
 
 const DEFAULT_WORLD = {
@@ -21,13 +21,11 @@ const DEFAULT_WORLD = {
 };
 
 const DEFAULT_BURST = {
-  day: 1,
-  total: 0,
-  byCategory: {},
+  lastKind: null,
+  comboCount: 0,
 };
 
 const HISTORY_LIMIT = 200;
-const GROWTH_CATEGORIES = new Set(["course", "english", "life", "future", "weight", "photo", "other"]);
 
 function newId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -36,28 +34,26 @@ function newId() {
   return Math.random().toString(36).slice(2);
 }
 
-function clampStat(value) {
-  return Math.max(0, Math.min(100, Math.round(value)));
+function clampStat(value, maxValue) {
+  return Math.max(0, Math.min(maxValue, Math.round(value)));
 }
 
 function clampStats(stats) {
   return {
-    hunger: clampStat(stats.hunger),
-    sanity: clampStat(stats.sanity),
-    health: clampStat(stats.health),
-    energy: clampStat(stats.energy),
+    life: clampStat(stats.life, STAT_LIMITS.life),
+    sanity: clampStat(stats.sanity, STAT_LIMITS.sanity),
+    hunger: clampStat(stats.hunger, STAT_LIMITS.hunger),
   };
 }
 
-function ensureBurstForDay(burst, day) {
-  if (!burst || burst.day !== day) {
-    return {
-      day,
-      total: 0,
-      byCategory: {},
-    };
+function normalizeBurst(burst) {
+  if (!burst || typeof burst !== "object") {
+    return { ...DEFAULT_BURST };
   }
-  return burst;
+  return {
+    lastKind: burst.lastKind ?? null,
+    comboCount: burst.comboCount ?? 0,
+  };
 }
 
 function initializeAchievements(existing = []) {
@@ -74,6 +70,22 @@ function initializeAchievements(existing = []) {
       unlockedAt: prior?.unlockedAt,
     };
   });
+}
+
+function normalizeStats(stats = {}) {
+  return clampStats({
+    life: stats.life ?? stats.health ?? DEFAULT_STATS.life,
+    sanity: stats.sanity ?? DEFAULT_STATS.sanity,
+    hunger: stats.hunger ?? DEFAULT_STATS.hunger,
+  });
+}
+
+function normalizeTaskMeta(task) {
+  return {
+    minutes: Number(task.minutes) || 10,
+    difficulty: Number(task.difficulty) || 1,
+    kind: resolveTaskKind(task.category, task.kind),
+  };
 }
 
 function createDefaultState() {
@@ -151,6 +163,7 @@ function migrateLegacyState(raw) {
     tasks = raw.tasks.map((task) => {
       const isRepeatable = task.type === "repeat" || task.isRepeatable;
       const status = task.status || "todo";
+      const meta = normalizeTaskMeta(task);
       return {
         id: task.id || newId(),
         title: task.title || "未命名任务",
@@ -160,11 +173,13 @@ function migrateLegacyState(raw) {
         isRepeatable,
         createdAt: task.createdAt || Date.now(),
         completedAt: task.completedAt,
-        exp: task.rewardXp || task.exp || 5,
+        exp: task.rewardXp || task.exp || 0,
         coinsReward: task.rewardCoins || task.coinsReward || 0,
         effect: task.effect || undefined,
-        cooldownMinutes: task.cooldownMinutes || undefined,
         lastCompletedAt: task.lastCompletedAt || undefined,
+        minutes: meta.minutes,
+        difficulty: meta.difficulty,
+        kind: meta.kind,
       };
     });
   }
@@ -208,6 +223,7 @@ function migrateLegacyState(raw) {
     tasks,
     completedTasks,
     treasureMaps,
+    stats: normalizeStats(raw.stats || raw),
   };
 }
 
@@ -222,18 +238,23 @@ function loadState() {
       return {
         ...createDefaultState(),
         ...parsed,
-        stats: { ...DEFAULT_STATS, ...(parsed.stats || {}) },
+        stats: normalizeStats(parsed.stats || parsed),
         world,
         currency: { coins: parsed.currency?.coins ?? 0 },
         tickets: { game: parsed.tickets?.game ?? 0 },
-        tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
+        tasks: Array.isArray(parsed.tasks)
+          ? parsed.tasks.map((task) => ({
+              ...task,
+              ...normalizeTaskMeta(task),
+            }))
+          : [],
         completedTasks: Array.isArray(parsed.completedTasks) ? parsed.completedTasks : [],
         treasureMaps: Array.isArray(parsed.treasureMaps)
           ? parsed.treasureMaps.map(normalizeTreasureMap)
           : [],
         claims: Array.isArray(parsed.claims) ? parsed.claims : [],
         achievements: initializeAchievements(parsed.achievements),
-        burst: ensureBurstForDay(parsed.burst, world.day),
+        burst: normalizeBurst(parsed.burst),
         history: Array.isArray(parsed.history) ? parsed.history : [],
       };
     }
@@ -284,36 +305,11 @@ function calculateRewardModifier(randomEvent, taskCategory) {
 
 function normalizeTaskEffect(task) {
   const effect = task.effect || {};
-  const category = task.category || "other";
-  if (category === "nightclub") {
-    return {
-      hunger: effect.hunger || 0,
-      sanity: effect.sanity || 0,
-      health: effect.health || 0,
-      energy: effect.energy || 0,
-    };
-  }
-  if (GROWTH_CATEGORIES.has(category)) {
-    return {
-      hunger: Math.max(effect.hunger || 0, -2),
-      sanity: Math.max(effect.sanity || 0, 0),
-      health: Math.max(effect.health || 0, 0),
-      energy: Math.max(effect.energy || 0, -2),
-    };
-  }
   return {
-    hunger: effect.hunger || 0,
-    sanity: effect.sanity || 0,
-    health: effect.health || 0,
-    energy: effect.energy || 0,
+    hunger: Math.max(0, effect.hunger || 0),
+    sanity: Math.max(0, effect.sanity || 0),
+    life: Math.max(0, effect.life || effect.health || 0),
   };
-}
-
-function getCourseBurstBonus(count) {
-  if (count === 3) return { bonusExp: 6, bonusSanity: 2 };
-  if (count === 5) return { bonusExp: 10, bonusSanity: 3 };
-  if (count === 10) return { bonusExp: 20, bonusSanity: 6 };
-  return { bonusExp: 0, bonusSanity: 0 };
 }
 
 function computeAchievementProgress(state, template) {
@@ -384,8 +380,7 @@ function applyAchievementRewards(state, template) {
       ...updated.stats,
       hunger: updated.stats.hunger + (reward.stats.hunger || 0),
       sanity: updated.stats.sanity + (reward.stats.sanity || 0),
-      health: updated.stats.health + (reward.stats.health || 0),
-      energy: updated.stats.energy + (reward.stats.energy || 0),
+      life: updated.stats.life + (reward.stats.life || reward.stats.health || 0),
     });
   }
 
@@ -441,11 +436,11 @@ function applyTreasureMapRewards(state, map) {
       coins: updatedState.currency.coins + map.baseReward.coins,
     };
   }
-  if (map.baseReward?.sanity || map.baseReward?.health) {
+  if (map.baseReward?.sanity || map.baseReward?.health || map.baseReward?.life) {
     updatedState.stats = clampStats({
       ...updatedState.stats,
       sanity: updatedState.stats.sanity + (map.baseReward.sanity || 0),
-      health: updatedState.stats.health + (map.baseReward.health || 0),
+      life: updatedState.stats.life + (map.baseReward.life || map.baseReward.health || 0),
     });
   }
   if (map.baseReward?.claimName) {
@@ -524,7 +519,7 @@ function maybeTriggerTreasureMaps(state, taskContext) {
       targetTasks: 5,
       targetCategories: ["life"],
       baseReward: { coins: 30, sanity: 5, claimName: "🧹 净化之礼" },
-      bigReward: { coins: 120, health: 8, claimName: "🗝 净化宝箱" },
+      bigReward: { coins: 120, life: 8, claimName: "🗝 净化宝箱" },
     });
   }
 
@@ -571,8 +566,7 @@ export function WorldProvider({ children }) {
         ...prev.stats,
         hunger: prev.stats.hunger + (delta.hunger || 0),
         sanity: prev.stats.sanity + (delta.sanity || 0),
-        health: prev.stats.health + (delta.health || 0),
-        energy: prev.stats.energy + (delta.energy || 0),
+        life: prev.stats.life + (delta.life || delta.health || 0),
       };
       return { ...prev, stats: clampStats(updated) };
     });
@@ -590,18 +584,11 @@ export function WorldProvider({ children }) {
 
       if (currentPhase === "day") {
         nextPhase = "dusk";
-        updatedStats.hunger -= 5;
       } else if (currentPhase === "dusk") {
         nextPhase = "night";
-        updatedStats.sanity -= 5;
       } else {
         nextPhase = "day";
         nextDay += 1;
-
-        if (updatedStats.hunger < 30 || updatedStats.sanity < 30) {
-          updatedStats.health -= 5;
-          updatedStats.energy -= 5;
-        }
 
         nextEvent = pickRandomEvent();
         if (nextEvent?.effectOnStats) {
@@ -609,8 +596,7 @@ export function WorldProvider({ children }) {
             ...updatedStats,
             hunger: updatedStats.hunger + (nextEvent.effectOnStats.hunger || 0),
             sanity: updatedStats.sanity + (nextEvent.effectOnStats.sanity || 0),
-            health: updatedStats.health + (nextEvent.effectOnStats.health || 0),
-            energy: updatedStats.energy + (nextEvent.effectOnStats.energy || 0),
+            life: updatedStats.life + (nextEvent.effectOnStats.life || 0),
           };
         }
       }
@@ -624,7 +610,7 @@ export function WorldProvider({ children }) {
           phase: nextPhase,
           randomEvent: nextEvent,
         },
-        burst: ensureBurstForDay(prev.burst, nextDay),
+        burst: normalizeBurst(prev.burst),
       };
 
       return recalculateAchievements(nextState);
@@ -721,6 +707,15 @@ export function WorldProvider({ children }) {
   const registerTask = useCallback((taskInput) => {
     if (!state || !taskInput) return null;
 
+    const meta = normalizeTaskMeta(taskInput);
+    const baseReward = calculateReward({
+      difficulty: meta.difficulty,
+      minutes: meta.minutes,
+      kind: meta.kind,
+      comboCount: 1,
+    });
+    const sanityBonus = getSanityGain(meta.difficulty);
+
     const created = {
       id: newId(),
       title: taskInput.title,
@@ -729,17 +724,18 @@ export function WorldProvider({ children }) {
       status: "todo",
       isRepeatable: Boolean(taskInput.isRepeatable),
       createdAt: Date.now(),
-      exp: taskInput.exp || 0,
-      coinsReward: taskInput.coinsReward || 0,
-      effect: taskInput.effect,
-      cooldownMinutes: taskInput.cooldownMinutes,
+      exp: taskInput.exp || baseReward.exp,
+      coinsReward: taskInput.coinsReward || baseReward.coins,
+      effect: taskInput.effect || { sanity: sanityBonus },
       lastCompletedAt: taskInput.lastCompletedAt,
       prerequisites: taskInput.prerequisites || [],
       requirements: taskInput.requirements || {},
       tags: taskInput.tags || [],
       isUserCreated: Boolean(taskInput.isUserCreated),
       size: taskInput.size,
-      difficulty: taskInput.difficulty,
+      minutes: meta.minutes,
+      difficulty: meta.difficulty,
+      kind: meta.kind,
     };
 
     setState((prev) => ({
@@ -768,17 +764,14 @@ export function WorldProvider({ children }) {
     }
 
     if (task.requirements) {
-      const { energy, hunger, sanity, health } = task.requirements;
-      if (energy && state.stats.energy < energy) {
-        return { ok: false, message: "能量不足，暂时无法执行" };
-      }
+      const { hunger, sanity, life, health } = task.requirements;
       if (hunger && state.stats.hunger < hunger) {
         return { ok: false, message: "饱食度不足，先补充" };
       }
       if (sanity && state.stats.sanity < sanity) {
         return { ok: false, message: "精神不足，先休息" };
       }
-      if (health && state.stats.health < health) {
+      if ((life || health) && state.stats.life < (life || health)) {
         return { ok: false, message: "生命值不足，先恢复" };
       }
     }
@@ -791,7 +784,7 @@ export function WorldProvider({ children }) {
       }
     }
 
-    const normalizedBurst = ensureBurstForDay(state.burst, state.world.day);
+    const normalizedBurst = normalizeBurst(state.burst);
     const normalizedState = normalizedBurst === state.burst ? state : { ...state, burst: normalizedBurst };
 
     const baseState = pushHistoryEntry(normalizedState, `完成任务：${task.title}`, {
@@ -800,11 +793,23 @@ export function WorldProvider({ children }) {
     });
 
     const rewardModifier = calculateRewardModifier(baseState.world.randomEvent, task.category);
-    const baseRewardExp = Math.max(
+    const meta = normalizeTaskMeta(task);
+    const burstKind = meta.kind;
+    const nextComboCount =
+      baseState.burst.lastKind && baseState.burst.lastKind === burstKind
+        ? (baseState.burst.comboCount || 0) + 1
+        : 1;
+    const baseReward = calculateReward({
+      difficulty: meta.difficulty,
+      minutes: meta.minutes,
+      kind: burstKind,
+      comboCount: nextComboCount,
+    });
+    const rewardExp = Math.max(
       0,
-      Math.round((task.exp || 0) * rewardModifier.expMultiplier) + rewardModifier.expBonus
+      Math.round(baseReward.exp * rewardModifier.expMultiplier) + rewardModifier.expBonus
     );
-    const rewardCoins = Math.max(0, Math.round((task.coinsReward || 0) * rewardModifier.coinMultiplier));
+    const rewardCoins = Math.max(0, Math.round(baseReward.coins * rewardModifier.coinMultiplier));
 
     const completedAt = Date.now();
 
@@ -827,28 +832,18 @@ export function WorldProvider({ children }) {
 
     const taskEffect = normalizeTaskEffect(task);
 
-    const burstCategory = task.category || "other";
-    const currentBurst = ensureBurstForDay(baseState.burst, baseState.world.day);
-    const categoryCount = (currentBurst.byCategory?.[burstCategory] || 0) + 1;
     const updatedBurst = {
-      day: baseState.world.day,
-      total: (currentBurst.total || 0) + 1,
-      byCategory: {
-        ...(currentBurst.byCategory || {}),
-        [burstCategory]: categoryCount,
-      },
+      lastKind: burstKind,
+      comboCount: nextComboCount,
     };
 
-    const { bonusExp, bonusSanity } =
-      burstCategory === "course" ? getCourseBurstBonus(categoryCount) : { bonusExp: 0, bonusSanity: 0 };
-    const rewardExp = baseRewardExp + bonusExp;
+    const baseSanityGain = getSanityGain(meta.difficulty);
 
     const updatedStats = clampStats({
       ...baseState.stats,
       hunger: baseState.stats.hunger + (taskEffect.hunger || 0),
-      sanity: baseState.stats.sanity + (taskEffect.sanity || 0) + bonusSanity,
-      health: baseState.stats.health + (taskEffect.health || 0),
-      energy: baseState.stats.energy + (taskEffect.energy || 0),
+      sanity: baseState.stats.sanity + (taskEffect.sanity || 0) + baseSanityGain,
+      life: baseState.stats.life + (taskEffect.life || 0),
     });
 
     const completedEntry = {
@@ -886,9 +881,8 @@ export function WorldProvider({ children }) {
       ok: true,
       rewardExp,
       rewardCoins,
-      bonusExp,
-      bonusSanity,
-      burstCount: categoryCount,
+      burstBonus: baseReward.burstBonus,
+      comboCount: nextComboCount,
     };
   }, [state]);
 
@@ -937,11 +931,11 @@ export function WorldProvider({ children }) {
       };
     }
 
-    if (newMap.baseReward?.sanity || newMap.baseReward?.health) {
+    if (newMap.baseReward?.sanity || newMap.baseReward?.health || newMap.baseReward?.life) {
       updatedState.stats = clampStats({
         ...updatedState.stats,
         sanity: updatedState.stats.sanity + (newMap.baseReward.sanity || 0),
-        health: updatedState.stats.health + (newMap.baseReward.health || 0),
+        life: updatedState.stats.life + (newMap.baseReward.life || newMap.baseReward.health || 0),
       });
     }
 
@@ -980,11 +974,11 @@ export function WorldProvider({ children }) {
       };
     }
 
-    if (map.bigReward?.sanity || map.bigReward?.health) {
+    if (map.bigReward?.sanity || map.bigReward?.health || map.bigReward?.life) {
       updatedState.stats = clampStats({
         ...updatedState.stats,
         sanity: updatedState.stats.sanity + (map.bigReward.sanity || 0),
-        health: updatedState.stats.health + (map.bigReward.health || 0),
+        life: updatedState.stats.life + (map.bigReward.life || map.bigReward.health || 0),
       });
     }
 

@@ -13,7 +13,7 @@ function renderReward(reward) {
   const parts = [];
   if (reward.coins) parts.push(`🪙 ${reward.coins}`);
   if (reward.sanity) parts.push(`🧠 +${reward.sanity}`);
-  if (reward.health) parts.push(`❤️ +${reward.health}`);
+  if (reward.life || reward.health) parts.push(`❤️ +${reward.life || reward.health}`);
   if (reward.claimName) parts.push(`🎁 ${reward.claimName}`);
   return parts.length ? parts.join(" · ") : "无";
 }

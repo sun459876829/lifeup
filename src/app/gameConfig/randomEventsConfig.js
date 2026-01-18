@@ -28,10 +28,7 @@ export const RANDOM_EVENTS = [
   {
     id: "low_pressure",
     name: "心情低气压",
-    description: "Sanity -5，但完成任何任务额外 +5 EXP",
-    effectOnStats: {
-      sanity: -5,
-    },
+    description: "完成任何任务额外 +5 EXP",
     taskRewardModifier: {
       expBonus: 5,
     },
@@ -40,9 +37,9 @@ export const RANDOM_EVENTS = [
   {
     id: "warm_fire",
     name: "篝火温度",
-    description: "夜晚能量损耗减轻，今天 Energy +5",
+    description: "今天精神 +5",
     effectOnStats: {
-      energy: 5,
+      sanity: 5,
     },
   },
 ];
