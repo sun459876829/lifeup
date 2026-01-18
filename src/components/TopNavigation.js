@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: "/inventory", label: "背包" },
   { href: "/history", label: "历史" },
   { href: "/profile", label: "档案" },
+  { href: "/settings", label: "设置" },
 ];
 
 export default function TopNavigation() {

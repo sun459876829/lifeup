@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useWorld } from "../worldState";
 import { TASK_CATEGORIES, TASK_TEMPLATES } from "../gameConfig/tasksConfig";
 import { calculateReward, resolveTaskKind } from "../../game/config";
@@ -46,6 +46,7 @@ function resolveCategoryLabel(category) {
 export default function TasksPage() {
   const { hydrated, tasks, stats, achievements, registerTask, completeTask, burst } = useWorld();
   const [message, setMessage] = useState("");
+  const lastClickRef = useRef(new Map());
 
   const groupedTemplates = useMemo(() => {
     const groups = {};
@@ -62,12 +63,22 @@ export default function TasksPage() {
   }, []);
 
   function handleAccept(template) {
+    const key = `accept-${template.category}-${template.title}`;
+    const now = Date.now();
+    const lastClick = lastClickRef.current.get(key) || 0;
+    if (now - lastClick < 1000) return;
+    lastClickRef.current.set(key, now);
     registerTask(template);
     setMessage(`📌 已接受任务：「${template.title}」`);
     setTimeout(() => setMessage(""), 2000);
   }
 
   function handleComplete(taskId) {
+    const key = `complete-${taskId}`;
+    const now = Date.now();
+    const lastClick = lastClickRef.current.get(key) || 0;
+    if (now - lastClick < 1000) return;
+    lastClickRef.current.set(key, now);
     const result = completeTask(taskId);
     if (!result.ok) {
       setMessage(result.message);

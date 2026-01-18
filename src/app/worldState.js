@@ -9,6 +9,7 @@ import {
   pushHistory as pushHistoryEntry,
   undoLastAction as undoHistoryLastAction,
 } from "../game/history";
+import { getDayIndex, getNow, getTodayKey } from "../game/time";
 
 const STORAGE_KEY = "lifeup.arcane.v4";
 const LEGACY_KEYS = ["lifeup.arcane.v3", "lifeup.world.v1", "lifeup.magicworld.v1"];
@@ -20,9 +21,9 @@ const DEFAULT_STATS = {
 };
 
 const DEFAULT_WORLD = {
-  day: 1,
-  phase: "day",
+  day: 0,
   randomEvent: null,
+  lastRefreshDay: null,
 };
 
 const DEFAULT_BURST = {
@@ -310,7 +311,7 @@ function computeAchievementProgress(state, template) {
         .map((task) => task.day)
     );
     let streak = 0;
-    for (let day = world.day; day >= 1; day -= 1) {
+    for (let day = world.day; day >= 0; day -= 1) {
       if (daysWithCourse.has(day)) {
         streak += 1;
       } else {
@@ -527,6 +528,14 @@ const WorldContext = createContext(null);
 export function WorldProvider({ children }) {
   const [hydrated, setHydrated] = useState(false);
   const [state, setState] = useState(null);
+  const [timeState, setTimeState] = useState(() => {
+    const now = getNow();
+    return {
+      now,
+      todayKey: getTodayKey(now),
+      dayIndex: getDayIndex(now),
+    };
+  });
 
   useEffect(() => {
     const loaded = loadState();
@@ -539,6 +548,64 @@ export function WorldProvider({ children }) {
     saveState(state);
   }, [hydrated, state]);
 
+  const refreshTime = useCallback(() => {
+    const now = getNow();
+    const todayKey = getTodayKey(now);
+    const dayIndex = getDayIndex(now);
+    setTimeState({ now, todayKey, dayIndex });
+
+    setState((prev) => {
+      if (!prev) return prev;
+
+      const lastRefreshDay = prev.world?.lastRefreshDay;
+      const dayChanged = prev.world?.day !== dayIndex;
+      const needsRefresh = lastRefreshDay !== todayKey;
+
+      if (!dayChanged && !needsRefresh) {
+        return prev;
+      }
+
+      let nextStats = prev.stats;
+      let nextRandomEvent = prev.world?.randomEvent;
+
+      if (needsRefresh) {
+        nextRandomEvent = pickRandomEvent();
+        if (nextRandomEvent?.effectOnStats) {
+          nextStats = clampStats({
+            ...nextStats,
+            hunger: nextStats.hunger + (nextRandomEvent.effectOnStats.hunger || 0),
+            sanity: nextStats.sanity + (nextRandomEvent.effectOnStats.sanity || 0),
+            life: nextStats.life + (nextRandomEvent.effectOnStats.life || 0),
+          });
+        }
+      }
+
+      const nextState = {
+        ...prev,
+        stats: nextStats,
+        world: {
+          ...prev.world,
+          day: dayIndex,
+          randomEvent: nextRandomEvent,
+          lastRefreshDay: needsRefresh ? todayKey : prev.world?.lastRefreshDay,
+        },
+        burst: normalizeBurst(prev.burst),
+      };
+
+      return recalculateAchievements(nextState);
+    });
+
+    return { now, todayKey, dayIndex };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+
+    refreshTime();
+    const interval = setInterval(refreshTime, 45000);
+    return () => clearInterval(interval);
+  }, [hydrated, refreshTime]);
+
   const changeStats = useCallback((delta) => {
     if (!state) return;
     setState((prev) => {
@@ -549,51 +616,6 @@ export function WorldProvider({ children }) {
         life: prev.stats.life + (delta.life || delta.health || 0),
       };
       return { ...prev, stats: clampStats(updated) };
-    });
-  }, [state]);
-
-  const advancePhase = useCallback(() => {
-    if (!state) return;
-
-    setState((prev) => {
-      const currentPhase = prev.world.phase;
-      let nextPhase = currentPhase;
-      let nextDay = prev.world.day;
-      let nextEvent = prev.world.randomEvent;
-      let updatedStats = { ...prev.stats };
-
-      if (currentPhase === "day") {
-        nextPhase = "dusk";
-      } else if (currentPhase === "dusk") {
-        nextPhase = "night";
-      } else {
-        nextPhase = "day";
-        nextDay += 1;
-
-        nextEvent = pickRandomEvent();
-        if (nextEvent?.effectOnStats) {
-          updatedStats = {
-            ...updatedStats,
-            hunger: updatedStats.hunger + (nextEvent.effectOnStats.hunger || 0),
-            sanity: updatedStats.sanity + (nextEvent.effectOnStats.sanity || 0),
-            life: updatedStats.life + (nextEvent.effectOnStats.life || 0),
-          };
-        }
-      }
-
-      const nextState = {
-        ...prev,
-        stats: clampStats(updatedStats),
-        world: {
-          ...prev.world,
-          day: nextDay,
-          phase: nextPhase,
-          randomEvent: nextEvent,
-        },
-        burst: normalizeBurst(prev.burst),
-      };
-
-      return recalculateAchievements(nextState);
     });
   }, [state]);
 
@@ -1127,7 +1149,10 @@ export function WorldProvider({ children }) {
     burst: state?.burst || { ...DEFAULT_BURST },
     history: state?.history || [],
     changeStats,
-    advancePhase,
+    now: timeState.now,
+    todayKey: timeState.todayKey,
+    dayIndex: timeState.dayIndex,
+    refreshTime,
     addCoins,
     spendCoins,
     exchangeCoinsForGameTicket,
@@ -1148,7 +1173,8 @@ export function WorldProvider({ children }) {
     hydrated,
     state,
     changeStats,
-    advancePhase,
+    timeState,
+    refreshTime,
     addCoins,
     spendCoins,
     exchangeCoinsForGameTicket,

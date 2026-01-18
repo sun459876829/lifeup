@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useWorld } from "../worldState";
 
 const SOURCE_MAP = {
@@ -13,6 +13,7 @@ const SOURCE_MAP = {
 export default function InventoryPage() {
   const { hydrated, claims, achievements, useClaim } = useWorld();
   const [message, setMessage] = useState("");
+  const lastClickRef = useRef(new Map());
 
   if (!hydrated) {
     return (
@@ -31,6 +32,10 @@ export default function InventoryPage() {
   const unlockedAchievements = achievements.filter((item) => item.unlocked);
 
   function handleUseClaim(claimId) {
+    const now = Date.now();
+    const lastClick = lastClickRef.current.get(claimId) || 0;
+    if (now - lastClick < 1000) return;
+    lastClickRef.current.set(claimId, now);
     useClaim(claimId);
     setMessage("✅ 已标记为已使用");
     setTimeout(() => setMessage(""), 2000);

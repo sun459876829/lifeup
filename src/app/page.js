@@ -1,15 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import WorldClock from "@/components/WorldClock";
+import FocusTimer from "@/components/FocusTimer";
 import { useWorld } from "./worldState";
 import { COIN_TO_RMB, STAT_LIMITS } from "../game/config";
-
-const PHASE_LABELS = {
-  day: "白天",
-  dusk: "黄昏",
-  night: "夜晚",
-};
+import { DEFAULT_UI_SETTINGS, loadUiSettings, UI_SETTINGS_KEY } from "../lib/uiSettings";
 
 const STAT_META = [
   { key: "life", label: "生命", emoji: "❤️", color: "from-rose-400 to-red-500", max: STAT_LIMITS.life },
@@ -17,10 +14,45 @@ const STAT_META = [
   { key: "hunger", label: "饱食", emoji: "🍞", color: "from-amber-400 to-orange-400", max: STAT_LIMITS.hunger },
 ];
 
+const HISTORY_LABELS = {
+  task_complete: "完成任务",
+  reward_spend: "支出奖励",
+  ticket_use: "使用券",
+  coins_adjust: "金币调整",
+  exp_adjust: "经验调整",
+};
+
 export default function Page() {
-  const { hydrated, stats, world, currency, burst, advancePhase, undoLastAction } = useWorld();
+  const {
+    hydrated,
+    stats,
+    world,
+    currency,
+    burst,
+    tasks,
+    completedTasks,
+    history,
+    undoLastAction,
+  } = useWorld();
   const [message, setMessage] = useState("");
+  const [uiSettings, setUiSettings] = useState(DEFAULT_UI_SETTINGS);
   const coinRmb = (currency.coins * COIN_TO_RMB).toFixed(1);
+
+  useEffect(() => {
+    setUiSettings(loadUiSettings());
+    const handleStorage = (event) => {
+      if (event.key === UI_SETTINGS_KEY) {
+        setUiSettings(loadUiSettings());
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  const recentHistory = useMemo(() => {
+    const list = Array.isArray(history) ? history : [];
+    return [...list].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 5);
+  }, [history]);
 
   if (!hydrated) {
     return (
@@ -35,12 +67,6 @@ export default function Page() {
     );
   }
 
-  function handleAdvance() {
-    advancePhase();
-    setMessage("⏳ 世界阶段已推进");
-    setTimeout(() => setMessage(""), 2000);
-  }
-
   function handleUndo() {
     const result = undoLastAction();
     if (result?.ok) {
@@ -50,6 +76,9 @@ export default function Page() {
     }
     setTimeout(() => setMessage(""), 2000);
   }
+
+  const todoTasks = tasks.filter((task) => task.status === "todo").slice(0, 5);
+  const recentCompletions = completedTasks.slice(0, 4);
 
   return (
     <div className="space-y-6">
@@ -61,7 +90,7 @@ export default function Page() {
           人生 · 饥荒魔法版 LifeUP
         </h1>
         <p className="text-sm text-slate-400 max-w-2xl">
-          管理饱食、精神与生命，穿行昼夜循环，用任务与事件雕刻你的荒野命运。
+          管理饱食、精神与生命，穿行现实日循环，用任务与事件雕刻你的荒野命运。
         </p>
       </header>
 
@@ -71,68 +100,64 @@ export default function Page() {
         </div>
       )}
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
-        <div>
-          <div className="text-sm font-medium text-slate-100">🕒 历史记录 & 撤销</div>
-          <div className="text-xs text-slate-500 mt-1">误点完成任务或误用券时，可以在这里撤销。</div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link
-            href="/history"
-            className="rounded-lg border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 hover:border-violet-400 hover:text-violet-200 transition"
-          >
-            查看历史记录
-          </Link>
-          <button
-            onClick={handleUndo}
-            className="rounded-lg bg-rose-500/80 hover:bg-rose-500 px-4 py-2 text-sm font-medium text-white transition"
-          >
-            撤销上一步
-          </button>
-        </div>
+      <section
+        className={`grid gap-4 ${uiSettings.showFocusTimer ? "lg:grid-cols-2" : "grid-cols-1"}`}
+      >
+        <WorldClock />
+        {uiSettings.showFocusTimer && <FocusTimer />}
       </section>
 
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-sm font-medium text-slate-100">🌑 荒野状态环</h2>
-            {burst?.comboCount > 1 && (
-              <div className="text-xs text-emerald-300">连击 x{burst.comboCount}</div>
-            )}
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {STAT_META.map((stat) => {
-              const value = stats[stat.key];
-              const percent = Math.min(100, Math.round((value / stat.max) * 100));
-              return (
-                <div key={stat.key} className="rounded-xl border border-slate-700 bg-slate-950/50 p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm text-slate-300">
-                      {stat.emoji} {stat.label}
-                    </div>
-                    <div className="text-lg font-semibold text-slate-100">
-                      {value}/{stat.max}
-                    </div>
-                  </div>
-                  <div className="mt-3 h-2 rounded-full bg-slate-800 overflow-hidden">
-                    <div
-                      className={`h-full bg-gradient-to-r ${stat.color}`}
-                      style={{ width: `${percent}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs text-slate-500">当前第</div>
-              <div className="text-2xl font-semibold text-slate-100">{world.day} 天</div>
+      <section
+        className={`grid grid-cols-1 gap-4 ${uiSettings.showStatsPanel ? "lg:grid-cols-3" : "lg:grid-cols-1"}`}
+      >
+        {uiSettings.showStatsPanel && (
+          <div className="lg:col-span-2 rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-4 shadow-lg shadow-slate-950/30">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-sm font-medium text-slate-100">🧭 玩家状态卡</h2>
+              {burst?.comboCount > 1 && (
+                <div className="text-xs text-emerald-300">连击 x{burst.comboCount}</div>
+              )}
             </div>
-            <div className="text-sm text-slate-300">{PHASE_LABELS[world.phase]}</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {STAT_META.map((stat) => {
+                const value = stats[stat.key];
+                const percent = Math.min(100, Math.round((value / stat.max) * 100));
+                return (
+                  <div key={stat.key} className="rounded-xl border border-slate-700 bg-slate-950/50 p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm text-slate-300">
+                        {stat.emoji} {stat.label}
+                      </div>
+                      <div className="text-lg font-semibold text-slate-100">
+                        {value}/{stat.max}
+                      </div>
+                    </div>
+                    <div className="mt-3 h-2 rounded-full bg-slate-800 overflow-hidden">
+                      <div
+                        className={`h-full bg-gradient-to-r ${stat.color}`}
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-amber-900/10 p-6 space-y-4 shadow-lg shadow-amber-900/20">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="text-xs text-slate-500">当前魔力币</div>
+              <div className="text-2xl font-semibold text-amber-300">{currency.coins}🪙</div>
+              <div className="text-xs text-slate-500 mt-1">约等于 ¥{coinRmb}</div>
+            </div>
+            <Link
+              href="/shop"
+              className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-200 hover:border-amber-300 hover:text-amber-100 transition"
+            >
+              去兑换
+            </Link>
           </div>
           <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
             <div className="text-xs text-slate-500">今日随机事件</div>
@@ -142,30 +167,104 @@ export default function Page() {
                 <div className="text-xs text-slate-400 mt-1">{world.randomEvent.description}</div>
               </div>
             ) : (
-              <div className="text-xs text-slate-500 mt-2">还没有事件，推进到新的一天会触发。</div>
+              <div className="text-xs text-slate-500 mt-2">今天还没有事件，晚点刷新看看。</div>
             )}
-          </div>
-          <button
-            onClick={handleAdvance}
-            className="w-full rounded-lg bg-violet-500/80 hover:bg-violet-500 text-white text-sm font-medium py-2.5 transition"
-          >
-            推进到下一阶段
-          </button>
-          <div className="text-xs text-slate-500">
-            推进顺序：白天 → 黄昏 → 夜晚 → 新的一天
           </div>
         </div>
       </section>
 
-      <section className="rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-amber-900/10 p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-xs text-slate-500">当前魔力币</div>
-            <div className="text-2xl font-semibold text-amber-300">{currency.coins}🪙</div>
-            <div className="text-xs text-slate-500 mt-1">约等于 ¥{coinRmb}</div>
+      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4 shadow-lg shadow-slate-950/30">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium text-slate-100">🗂 今日任务区</h2>
+            <Link
+              href="/tasks"
+              className="text-xs text-violet-300 hover:text-violet-200 transition"
+            >
+              去任务大厅 →
+            </Link>
           </div>
-          <div className="text-sm text-slate-400">完成任务获得魔力币，再兑换为游戏券</div>
+          {todoTasks.length === 0 ? (
+            <div className="text-sm text-slate-500">
+              暂时没有待办任务，去任务大厅领取一个新任务吧。
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {todoTasks.map((task) => (
+                <div key={task.id} className="rounded-xl border border-slate-800 bg-slate-950/80 p-3">
+                  <div className="text-sm text-slate-200">{task.title}</div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    {task.category} · {task.minutes} 分钟 · 难度 {task.difficulty}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
+
+        <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4 shadow-lg shadow-slate-950/30">
+          <h2 className="text-sm font-medium text-slate-100">✅ 今日进展</h2>
+          {recentCompletions.length === 0 ? (
+            <div className="text-sm text-slate-500">今天还没有完成任务。</div>
+          ) : (
+            <div className="space-y-2">
+              {recentCompletions.map((entry) => (
+                <div key={entry.id} className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+                  <div className="text-sm text-slate-200">{entry.title}</div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    {entry.completedAt ? new Date(entry.completedAt).toLocaleString("zh-CN") : "完成"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <Link
+            href="/history"
+            className="inline-flex items-center text-xs text-slate-400 hover:text-violet-200 transition"
+          >
+            查看全部历史 →
+          </Link>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4 shadow-lg shadow-slate-950/30">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium text-slate-100">🕒 最近历史 & 撤销</div>
+            <div className="text-xs text-slate-500 mt-1">误点完成任务或误用券时，可以在这里撤销。</div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/history"
+              className="rounded-lg border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 hover:border-violet-400 hover:text-violet-200 transition"
+            >
+              查看历史记录
+            </Link>
+            <button
+              onClick={handleUndo}
+              className="rounded-lg bg-rose-500/80 hover:bg-rose-500 px-4 py-2 text-sm font-medium text-white transition"
+            >
+              撤销上一步
+            </button>
+          </div>
+        </div>
+
+        {recentHistory.length === 0 ? (
+          <div className="text-sm text-slate-500">暂无历史记录，完成任务或使用券后会出现在这里。</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {recentHistory.map((entry) => (
+              <div key={entry.id} className="rounded-xl border border-slate-800 bg-slate-950/80 p-4">
+                <div className="text-sm text-slate-200">
+                  {HISTORY_LABELS[entry.kind] || "操作记录"}
+                </div>
+                <div className="text-xs text-slate-500 mt-1">
+                  {entry.createdAt ? new Date(entry.createdAt).toLocaleString("zh-CN") : ""}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );
