@@ -20,6 +20,8 @@ const HISTORY_LABELS = {
   ticket_use: "使用券",
   coins_adjust: "金币调整",
   exp_adjust: "经验调整",
+  coins_change: "金币变动",
+  history_undo: "撤销记录",
 };
 
 export default function Page() {
@@ -51,7 +53,9 @@ export default function Page() {
 
   const recentHistory = useMemo(() => {
     const list = Array.isArray(history) ? history : [];
-    return [...list].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 5);
+    return [...list]
+      .sort((a, b) => (b.timestamp || b.createdAt || 0) - (a.timestamp || a.createdAt || 0))
+      .slice(0, 5);
   }, [history]);
 
   if (!hydrated) {
@@ -256,10 +260,12 @@ export default function Page() {
             {recentHistory.map((entry) => (
               <div key={entry.id} className="rounded-xl border border-slate-800 bg-slate-950/80 p-4">
                 <div className="text-sm text-slate-200">
-                  {HISTORY_LABELS[entry.kind] || "操作记录"}
+                  {HISTORY_LABELS[entry.type || entry.kind] || "操作记录"}
                 </div>
                 <div className="text-xs text-slate-500 mt-1">
-                  {entry.createdAt ? new Date(entry.createdAt).toLocaleString("zh-CN") : ""}
+                  {(entry.timestamp || entry.createdAt)
+                    ? new Date(entry.timestamp || entry.createdAt).toLocaleString("zh-CN")
+                    : ""}
                 </div>
               </div>
             ))}

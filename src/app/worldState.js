@@ -8,6 +8,7 @@ import {
   loadHistory,
   pushHistory as pushHistoryEntry,
   undoLastAction as undoHistoryLastAction,
+  undoHistoryItem as undoHistoryItemAction,
 } from "../game/history";
 import { getDayIndex, getNow, getTodayKey } from "../game/time";
 
@@ -619,27 +620,65 @@ export function WorldProvider({ children }) {
     });
   }, [state]);
 
-  const addCoins = useCallback((amount) => {
+  const addCoins = useCallback((amount, reason = "manual_adjust") => {
     if (!state || !amount) return;
-    setState((prev) => ({
-      ...prev,
-      currency: {
-        ...prev.currency,
-        coins: prev.currency.coins + amount,
-      },
-    }));
+    setState((prev) => {
+      const nextHistory = pushHistoryEntry(
+        {
+          type: "coins_change",
+          payload: {
+            delta: amount,
+            reason,
+          },
+          undo: {
+            type: "reverse_coins_change",
+            payload: {
+              delta: amount,
+            },
+          },
+        },
+        prev.history
+      );
+      return {
+        ...prev,
+        history: nextHistory,
+        currency: {
+          ...prev.currency,
+          coins: prev.currency.coins + amount,
+        },
+      };
+    });
   }, [state]);
 
-  const spendCoins = useCallback((amount) => {
+  const spendCoins = useCallback((amount, reason = "manual_adjust") => {
     if (!state || amount <= 0) return false;
     if (state.currency.coins < amount) return false;
-    setState((prev) => ({
-      ...prev,
-      currency: {
-        ...prev.currency,
-        coins: prev.currency.coins - amount,
-      },
-    }));
+    setState((prev) => {
+      const nextHistory = pushHistoryEntry(
+        {
+          type: "coins_change",
+          payload: {
+            delta: -amount,
+            reason,
+          },
+          undo: {
+            type: "reverse_coins_change",
+            payload: {
+              delta: -amount,
+            },
+          },
+        },
+        prev.history
+      );
+      return {
+        ...prev,
+        history: nextHistory,
+        currency: {
+          ...prev.currency,
+          coins: prev.currency.coins - amount,
+        },
+      };
+    });
     return true;
   }, [state]);
 
@@ -686,12 +725,19 @@ export function WorldProvider({ children }) {
 
       const nextHistory = pushHistoryEntry(
         {
-          kind: "ticket_use",
+          type: "ticket_use",
           payload: {
             ticketId: "game",
             ticketName: "游戏券",
-            previousUsedFlag: false,
-            previousCount: currentTickets,
+            delta: -1,
+          },
+          undo: {
+            type: "revert_ticket_use",
+            payload: {
+              ticketId: "game",
+              delta: -1,
+              previousCount: currentTickets,
+            },
           },
         },
         prev.history
@@ -877,7 +923,7 @@ export function WorldProvider({ children }) {
 
     const nextHistory = pushHistoryEntry(
       {
-        kind: "task_complete",
+        type: "task_complete",
         payload: {
           taskId: task.id,
           taskTitle: task.title,
@@ -891,6 +937,20 @@ export function WorldProvider({ children }) {
           statsDelta,
           previousBurst: baseState.burst,
           nextBurst: updatedBurst,
+        },
+        undo: {
+          type: "revert_task_complete",
+          payload: {
+            taskId: task.id,
+            prevStatus: previousStatus,
+            prevCompletedAt: previousCompletedAt,
+            prevLastCompletedAt: previousLastCompletedAt,
+            coinsDelta: rewardCoins,
+            expDelta: rewardExp,
+            completedAt,
+            statsDelta,
+            previousBurst: baseState.burst,
+          },
         },
       },
       baseState.history
@@ -1070,11 +1130,23 @@ export function WorldProvider({ children }) {
   }, [state]);
 
   const pushHistory = useCallback((entry) => {
-    if (!state || !entry?.kind) return;
+    if (!state || !(entry?.type || entry?.kind)) return;
     setState((prev) => ({
       ...prev,
       history: pushHistoryEntry(entry, prev.history),
     }));
+  }, [state]);
+
+  const undoHistoryItem = useCallback((id) => {
+    if (!state) return { ok: false, error: "世界尚未加载" };
+    const result = undoHistoryItemAction({ state, history: state.history, id });
+    if (!result.ok) return result;
+    const nextState = recalculateAchievements(result.state);
+    setState({
+      ...nextState,
+      history: result.history,
+    });
+    return { ok: true };
   }, [state]);
 
   const undoLastAction = useCallback(() => {
@@ -1165,6 +1237,7 @@ export function WorldProvider({ children }) {
     addClaim,
     useClaim,
     pushHistory,
+    undoHistoryItem,
     undoLastAction,
     unlockAchievement,
     updateAchievementProgress,
@@ -1187,6 +1260,7 @@ export function WorldProvider({ children }) {
     addClaim,
     useClaim,
     pushHistory,
+    undoHistoryItem,
     undoLastAction,
     unlockAchievement,
     updateAchievementProgress,
