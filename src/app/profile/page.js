@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useWorld } from "../worldState";
 
 export default function ProfilePage() {
-  const { hydrated, stats, world, currency, tickets, achievements, completedTasks } = useWorld();
+  const { hydrated, stats, dayIndex, currency, tickets, achievements, completedTasks } = useWorld();
 
   if (!hydrated) {
     return (
@@ -47,8 +47,8 @@ export default function ProfilePage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="text-center p-3 rounded-lg bg-slate-900/50">
               <div className="text-2xl mb-1">📆</div>
-              <div className="text-xl font-bold text-slate-100">第 {world.day} 天</div>
-              <div className="text-[10px] text-slate-500 mt-1">当前阶段 {world.phase}</div>
+              <div className="text-xl font-bold text-slate-100">第 {dayIndex} 天</div>
+              <div className="text-[10px] text-slate-500 mt-1">荒野时间纪录</div>
             </div>
             <div className="text-center p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
               <div className="text-2xl mb-1">🪙</div>

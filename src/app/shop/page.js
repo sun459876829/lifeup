@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useWorld } from "../worldState";
 import { COIN_TO_RMB } from "../../game/config";
 
@@ -9,14 +9,21 @@ const GAME_TICKET_COST = 50;
 export default function ShopPage() {
   const { hydrated, currency, tickets, exchangeCoinsForGameTicket, useGameTicket } = useWorld();
   const [message, setMessage] = useState("");
+  const lastClickRef = useRef({});
 
   function handleExchange() {
+    const now = Date.now();
+    if (now - (lastClickRef.current.exchange || 0) < 1000) return;
+    lastClickRef.current.exchange = now;
     const result = exchangeCoinsForGameTicket(GAME_TICKET_COST);
     setMessage(result.message);
     setTimeout(() => setMessage(""), 2500);
   }
 
   function handleUseTicket() {
+    const now = Date.now();
+    if (now - (lastClickRef.current.useTicket || 0) < 1000) return;
+    lastClickRef.current.useTicket = now;
     const result = useGameTicket();
     setMessage(result.message);
     setTimeout(() => setMessage(""), 2500);

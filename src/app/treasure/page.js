@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useWorld } from "../worldState";
 
 const TIER_STYLES = {
@@ -21,6 +21,7 @@ function renderReward(reward) {
 export default function TreasurePage() {
   const { hydrated, treasureMaps, completeTreasureMap } = useWorld();
   const [message, setMessage] = useState("");
+  const lastClickRef = useRef(new Map());
 
   if (!hydrated) {
     return (
@@ -42,6 +43,10 @@ export default function TreasurePage() {
   };
 
   function handleComplete(mapId) {
+    const now = Date.now();
+    const lastClick = lastClickRef.current.get(mapId) || 0;
+    if (now - lastClick < 1000) return;
+    lastClickRef.current.set(mapId, now);
     const result = completeTreasureMap(mapId);
     if (!result.ok) {
       setMessage(result.message);
