@@ -33,6 +33,7 @@ export type TaskTemplate = {
   repeatable: boolean;
   estimatedMinutes: number;
   description?: string;
+  maxInstances?: number;
 };
 
 export type TaskInstance = {
@@ -324,6 +325,18 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
     if (!templateId) return null;
     const template = stateRef.current.tasks.templates[templateId];
     if (!template) return null;
+    const currentTasks = stateRef.current.tasks.active;
+    if (template.repeatable) {
+      const hasActive = currentTasks.some(
+        (item) =>
+          item.templateId === templateId && (item.status === "pending" || item.status === "active")
+      );
+      if (hasActive) return null;
+    } else {
+      const maxInstances = template.maxInstances ?? 1;
+      const existingCount = currentTasks.filter((item) => item.templateId === templateId).length;
+      if (existingCount >= maxInstances) return null;
+    }
     const instance: TaskInstance = {
       instanceId: newId(),
       templateId,
@@ -360,15 +373,11 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       const template = current.tasks.templates[instance.templateId];
       if (!template) return { ok: false };
 
-      const computedMinutes =
-        options?.actualMinutes ??
-        instance.actualMinutes ??
-        (instance.startedAt ? Math.round((Date.now() - instance.startedAt) / 60000) : null) ??
-        template.estimatedMinutes;
-      const actualMinutes = Math.max(5, computedMinutes || template.estimatedMinutes);
+      const estimatedMinutes = Math.max(5, template.estimatedMinutes);
+      const actualMinutes = options?.actualMinutes ?? instance.actualMinutes ?? null;
 
       const reward = computeReward({
-        minutes: actualMinutes,
+        minutes: estimatedMinutes,
         difficulty: template.difficulty,
         category: template.category,
       });
@@ -385,18 +394,14 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
         const entry = buildHistoryEntry("task_complete", {
           instanceId,
           templateId: template.id,
-          title: template.title,
-          actualMinutes,
-          reward,
+          coins: reward.coins,
+          exp: reward.exp,
+          resourceDrops: reward.resourceDrops,
+          estimatedMinutes,
         });
-        return {
-          ...prev,
-          coins: prev.coins + reward.coins,
-          exp: prev.exp + reward.exp,
-          resources: mergeResourceChanges(prev.resources, resourceChanges),
-          tasks: {
-            ...prev.tasks,
-            active: prev.tasks.active.map((item) =>
+        const updatedActive = template.repeatable
+          ? prev.tasks.active.filter((item) => item.instanceId !== instanceId)
+          : prev.tasks.active.map((item) =>
               item.instanceId === instanceId
                 ? {
                     ...item,
@@ -405,15 +410,24 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
                     actualMinutes,
                   }
                 : item
-            ),
+            );
+        return {
+          ...prev,
+          tasks: {
+            ...prev.tasks,
+            active: updatedActive,
           },
           history: pushHistoryEntry(entry, prev.history),
         };
       });
 
+      addCoins(reward.coins, "task_complete");
+      addExp(reward.exp, "task_complete");
+      addResources(resourceChanges, "task_complete");
+
       return { ok: true, reward };
     },
-    []
+    [addCoins, addExp, addResources]
   );
 
   const advanceWorldDay = useCallback(() => {

@@ -23,6 +23,13 @@ export type RewardOutput = {
   resourceDrops: Array<{ id: string; amount: number }>;
 };
 
+export type RewardRange = {
+  minCoins: number;
+  maxCoins: number;
+  minExp: number;
+  maxExp: number;
+};
+
 const DIFFICULTY_RANGES: Record<RewardDifficulty, { min: number; max: number }> = {
   tiny: { min: 10, max: 20 },
   small: { min: 10, max: 20 },
@@ -84,6 +91,24 @@ function computeResourceDrops(category: RewardCategory, minutes: number) {
     default:
       return normalizeDrops([buildResourceDrop("scrap", intensity >= 3 ? 1 : 0)]);
   }
+}
+
+export function estimateRewardRange(input: RewardInput): RewardRange {
+  const minutes = normalizeMinutes(input.minutes);
+  const range = DIFFICULTY_RANGES[input.difficulty] || DIFFICULTY_RANGES.small;
+  const baseValue = (minutes / 60) * 50;
+  const minFactor = input.difficulty === "huge" ? 0.8 : 1;
+  const maxFactor = input.difficulty === "huge" ? 1.2 : 1;
+
+  const minBase = clamp(baseValue * minFactor, range.min, range.max);
+  const maxBase = clamp(baseValue * maxFactor, range.min, range.max);
+  const multiplier = input.category === "work" ? 1.15 : 1;
+  const minCoins = roundCoins(minBase * multiplier);
+  const maxCoins = roundCoins(maxBase * multiplier);
+  const minExp = roundCoins(minCoins * 0.8);
+  const maxExp = roundCoins(maxCoins * 0.8);
+
+  return { minCoins, maxCoins, minExp, maxExp };
 }
 
 export function computeReward(input: RewardInput): RewardOutput {

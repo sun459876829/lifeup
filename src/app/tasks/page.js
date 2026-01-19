@@ -1,233 +1,140 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { useWorld } from "../worldState";
-import { computeRewards, resolveDifficultyValue } from "../../lib/loadTasks";
-import { getBatchRecommendation } from "../../engine/batchEngine";
+import { useMemo, useState } from "react";
+import { useGameState } from "@/state/GameStateContext";
+import { computeReward, estimateRewardRange } from "@/game/config/rewards";
+import { RESOURCES } from "@/game/config/resources";
 
-const CUSTOM_CATEGORY_LABELS = {
-  study: "学习",
-  money: "工作赚钱",
-  life: "生活整理",
-  body: "运动身体",
-  social: "社交",
-  misc: "其他",
-};
-
-const SYSTEM_CATEGORY_LABELS = {
+const CATEGORY_LABELS = {
   learning: "学习",
-  course: "课程",
-  weight: "体重管理",
+  cleaning: "清洁",
+  work: "夜场/工作",
   english: "英语",
-  photo: "拍照",
-  life: "生活",
-  nightclub: "夜场",
-  future: "人生主线",
+  health: "健康",
+  context: "情境切换",
+  explore: "探索",
   other: "其他",
 };
 
-const CATEGORY_LABELS = { ...SYSTEM_CATEGORY_LABELS, ...CUSTOM_CATEGORY_LABELS };
-
-const PRIORITY_BADGES = {
-  urgent: {
-    label: "URGENT",
-    className:
-      "bg-gradient-to-r from-rose-500 via-red-500 to-fuchsia-500 text-red-50 border border-rose-200/40 shadow-[0_0_12px_rgba(248,113,113,0.45)]",
-    glowClass: "bg-red-500/40",
-  },
-  soon: {
-    label: "SOON",
-    className:
-      "bg-gradient-to-r from-amber-400 via-orange-500 to-rose-400 text-orange-50 border border-amber-200/40 shadow-[0_0_12px_rgba(251,146,60,0.45)]",
-    glowClass: "bg-orange-500/40",
-  },
-  later: {
-    label: "LATER",
-    className:
-      "bg-gradient-to-r from-slate-500 via-slate-400 to-slate-300 text-slate-900 border border-slate-200/60 shadow-[0_0_12px_rgba(148,163,184,0.45)]",
-    glowClass: "bg-slate-400/40",
-  },
-  quick: {
-    label: "QUICK",
-    className:
-      "bg-gradient-to-r from-emerald-400 via-emerald-500 to-lime-400 text-emerald-950 border border-emerald-200/60 shadow-[0_0_12px_rgba(52,211,153,0.45)]",
-    glowClass: "bg-emerald-400/40",
-  },
-  long: {
-    label: "LONG",
-    className:
-      "bg-gradient-to-r from-sky-400 via-blue-500 to-indigo-400 text-blue-950 border border-blue-200/60 shadow-[0_0_12px_rgba(96,165,250,0.45)]",
-    glowClass: "bg-blue-400/40",
-  },
+const DIFFICULTY_STARS = {
+  tiny: 1,
+  small: 2,
+  medium: 3,
+  large: 4,
+  huge: 5,
 };
 
-const PRIORITY_ALIASES = {
-  urgent: "urgent",
-  soon: "soon",
-  later: "later",
-  quick: "quick",
-  long: "long",
-  "优先紧急": "urgent",
-  "紧急": "urgent",
-  "尽快做": "soon",
-  "稍后做": "later",
-  "快速任务": "quick",
-  "长任务": "long",
+const RESOURCE_ICONS = {
+  wood: "🪵",
+  stone: "🪨",
+  fiber: "🧵",
+  scrap: "⚙️",
+  insightShard: "🔮",
+  energyCrystal: "💠",
+  languageRune: "📘",
+  soulShard: "✨",
 };
 
-function normalizeEffect(category, effect = {}) {
-  return effect;
-}
-
-function formatEffect(category, effect = {}) {
-  const normalized = normalizeEffect(category, effect);
-  const labels = [];
-  if (normalized.hunger) labels.push(`🍞 ${normalized.hunger > 0 ? "+" : ""}${normalized.hunger} 饱食`);
-  if (normalized.sanity) labels.push(`🧠 ${normalized.sanity > 0 ? "+" : ""}${normalized.sanity} 精神`);
-  if (normalized.life) labels.push(`❤️ ${normalized.life > 0 ? "+" : ""}${normalized.life} 生命`);
-  return labels;
-}
-
-function formatDifficulty(level) {
-  const value = Math.min(5, Math.max(1, resolveDifficultyValue(level)));
+function formatDifficulty(difficulty) {
+  const value = DIFFICULTY_STARS[difficulty] || 1;
   return `${"★".repeat(value)}${"☆".repeat(5 - value)}`;
+}
+
+function formatRange(minValue, maxValue) {
+  if (minValue === maxValue) return `${minValue}`;
+  return `${minValue}–${maxValue}`;
 }
 
 function resolveCategoryLabel(category) {
   return CATEGORY_LABELS[category] || category || "其他";
 }
 
-function resolvePriorityKey(priority) {
-  if (!priority) return null;
-  const key = String(priority).trim().toLowerCase();
-  return PRIORITY_ALIASES[key] || null;
-}
-
-function renderPriorityBadge(priority) {
-  const key = resolvePriorityKey(priority);
-  if (!key) return null;
-  const badge = PRIORITY_BADGES[key];
-  if (!badge) return null;
-
-  return (
-    <span className="absolute left-3 top-3 z-10">
-      <span
-        className={`relative inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-[0.24em] ${badge.className}`}
-      >
-        <span
-          className={`absolute inset-0 -z-10 rounded-full blur-md opacity-80 ${badge.glowClass}`}
-        />
-        <span className="relative">{badge.label}</span>
-      </span>
-    </span>
-  );
+function buildRewardPreview(template) {
+  const range = estimateRewardRange({
+    minutes: template.estimatedMinutes,
+    difficulty: template.difficulty,
+    category: template.category,
+  });
+  const reward = computeReward({
+    minutes: template.estimatedMinutes,
+    difficulty: template.difficulty,
+    category: template.category,
+  });
+  return {
+    range,
+    reward,
+  };
 }
 
 export default function TasksPage() {
-  const {
-    hydrated,
-    tasks,
-    stats,
-    achievements,
-    registerTask,
-    completeTask,
-    grantExp,
-    burst,
-    taskConfig,
-  } = useWorld();
+  const { hydrated, tasks, spawnTaskInstance, completeTaskInstance } = useGameState();
   const [message, setMessage] = useState("");
-  const [batchRecommendation, setBatchRecommendation] = useState(null);
-  const lastClickRef = useRef(new Map());
+
+  const templates = useMemo(() => Object.values(tasks.templates || {}), [tasks.templates]);
 
   const groupedTemplates = useMemo(() => {
     const groups = {};
-    Object.values(taskConfig || {}).forEach((template) => {
+    templates.forEach((template) => {
       if (!groups[template.category]) {
         groups[template.category] = [];
       }
       groups[template.category].push(template);
     });
     return groups;
-  }, [taskConfig]);
+  }, [templates]);
 
   const categories = useMemo(() => Object.keys(groupedTemplates), [groupedTemplates]);
 
+  const activeInstances = useMemo(
+    () => tasks.active.filter((task) => task.status === "pending" || task.status === "active"),
+    [tasks.active]
+  );
+
+  const doneInstances = useMemo(
+    () => tasks.active.filter((task) => task.status === "done"),
+    [tasks.active]
+  );
+
   function handleAccept(template) {
-    const key = `accept-${template.category}-${template.templateId}`;
-    const now = Date.now();
-    const lastClick = lastClickRef.current.get(key) || 0;
-    if (now - lastClick < 1000) return;
-    lastClickRef.current.set(key, now);
-    registerTask({ templateId: template.templateId });
-    setMessage(`📌 已接受任务：「${template.name}」`);
+    const instance = spawnTaskInstance(template.id);
+    if (!instance) {
+      setMessage("该任务进行中或已达领取上限。");
+      setTimeout(() => setMessage(""), 2000);
+      return;
+    }
+    setMessage(`📌 已领取任务：「${template.title}」`);
     setTimeout(() => setMessage(""), 2000);
   }
 
-  function handleComplete(taskId) {
-    const key = `complete-${taskId}`;
-    const now = Date.now();
-    const lastClick = lastClickRef.current.get(key) || 0;
-    if (now - lastClick < 1000) return;
-    lastClickRef.current.set(key, now);
-    const result = completeTask(taskId);
+  function handleComplete(instanceId, template) {
+    const result = completeTaskInstance(instanceId);
     if (!result.ok) {
-      setMessage(result.message);
-      setTimeout(() => setMessage(""), 3000);
+      setMessage("完成失败，请稍后重试。");
+      setTimeout(() => setMessage(""), 2000);
       return;
     }
-    const completedTask = tasks.find((task) => task.id === taskId);
-    const recommendedBatch = getBatchRecommendation({
-      completedTask,
-      taskConfig,
-      activeTasks: tasks.filter((task) => task.status === "todo" && task.id !== taskId),
-    });
-    setBatchRecommendation(recommendedBatch);
-    const burstRate = Math.round((result.burstBonus || 0) * 100);
-    const comboNote =
-      result.comboCount > 1 && burstRate > 0 ? `连击 x${result.comboCount}，额外奖励 +${burstRate}%！` : "";
+    const reward = result.reward;
+    const drops = reward?.resourceDrops
+      ?.map((drop) => `${RESOURCES[drop.id]?.name || drop.id} x${drop.amount}`)
+      .join("、");
+    const dropText = drops ? `，掉落 ${drops}` : "";
     setMessage(
-      `✨ 完成任务，获得 ${result.rewardCoins}🪙 + ${result.rewardExp} EXP ${comboNote}`.trim()
+      `✨ 完成「${template.title}」：+${reward?.coins || 0} 金币，+${reward?.exp || 0} EXP${dropText}`
     );
     setTimeout(() => setMessage(""), 3000);
   }
 
-  function handleApplyBatch() {
-    if (!batchRecommendation) return;
-    const tasksToAdd = batchRecommendation.tasks || [];
-    tasksToAdd.forEach((template) => {
-      registerTask({ templateId: template.templateId });
-    });
-    const totalExp = tasksToAdd.reduce(
-      (sum, template) => sum + computeRewards(template.difficulty).exp,
-      0
-    );
-    const bonusExp = Math.round(totalExp * (batchRecommendation.bonus || 0));
-    if (bonusExp > 0) {
-      grantExp(bonusExp, "batch_bonus");
-    }
-    setMessage(
-      `🪄 已添加 ${tasksToAdd.length} 个批处理任务${bonusExp > 0 ? `，额外 +${bonusExp} EXP` : ""}`
-    );
-    setBatchRecommendation(null);
-    setTimeout(() => setMessage(""), 3000);
+  function hasActiveInstance(templateId) {
+    return activeInstances.some((task) => task.templateId === templateId);
   }
 
-  function handleDismissBatch() {
-    setBatchRecommendation(null);
-  }
-
-  function canAccept(template) {
-    if (!template.requirements) return true;
-    if (template.requirements.hunger && stats.hunger < template.requirements.hunger) return false;
-    if (template.requirements.sanity && stats.sanity < template.requirements.sanity) return false;
-    if (template.requirements.life && stats.life < template.requirements.life) return false;
-
-    if (template.prerequisites?.length) {
-      const unlockedKeys = new Set(achievements.filter((a) => a.unlocked).map((a) => a.key));
-      return template.prerequisites.every((key) => unlockedKeys.has(key));
+  function canSpawnTemplate(template) {
+    if (template.repeatable) {
+      return !hasActiveInstance(template.id);
     }
-
-    return true;
+    const maxInstances = template.maxInstances ?? 1;
+    const existingCount = tasks.active.filter((task) => task.templateId === template.id).length;
+    return existingCount < maxInstances;
   }
 
   if (!hydrated) {
@@ -243,56 +150,20 @@ export default function TasksPage() {
     );
   }
 
-  const todoTasks = tasks.filter((task) => task.status === "todo");
-  const doneTasks = tasks.filter((task) => task.status === "done");
-
   return (
     <div className="space-y-6">
       <header className="space-y-2">
         <h1 className="text-3xl font-semibold bg-gradient-to-r from-violet-300 via-sky-200 to-emerald-300 bg-clip-text text-transparent">
-          📜 任务大厅 · 荒野生存
+          📜 任务大厅 · 生存任务
         </h1>
         <p className="text-sm text-slate-400">
-          接受任务 → 完成任务 → 资源与成就推进。每个任务都像饥荒里的「砍一棵树」。
+          领取任务 → 完成任务 → 掉落资源与经验。预计奖励基于任务时长与难度估算。
         </p>
-        {burst?.comboCount > 1 && (
-          <div className="text-xs text-slate-500">当前连击 x{burst.comboCount}</div>
-        )}
       </header>
 
       {message && (
         <div className="rounded-lg bg-violet-500/20 border border-violet-500/40 p-3 text-sm text-violet-100">
           {message}
-        </div>
-      )}
-
-      {batchRecommendation && (
-        <div className="rounded-lg border border-violet-500/40 bg-violet-500/20 p-4 text-sm text-violet-50 shadow-[0_0_18px_rgba(139,92,246,0.3)]">
-          <div className="font-medium">🪄 是否进行批处理？奖励 +10% EXP</div>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs text-violet-100/80">
-            {batchRecommendation.tasks.map((task) => (
-              <span
-                key={task.templateId}
-                className="rounded-full border border-violet-400/40 bg-violet-500/10 px-2 py-0.5"
-              >
-                {task.name}
-              </span>
-            ))}
-          </div>
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              onClick={handleApplyBatch}
-              className="rounded-lg bg-violet-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-400"
-            >
-              一键批处理
-            </button>
-            <button
-              onClick={handleDismissBatch}
-              className="rounded-lg border border-violet-500/40 px-3 py-1.5 text-xs text-violet-100 transition hover:border-violet-300"
-            >
-              暂不
-            </button>
-          </div>
         </div>
       )}
 
@@ -311,59 +182,64 @@ export default function TasksPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {(groupedTemplates[categoryKey] || []).map((template) => {
-                  const effects = formatEffect(template.category, template.effect);
-                  const canTake = canAccept(template);
-                  const baseReward = computeRewards(template.difficulty);
+                  const { range, reward } = buildRewardPreview(template);
+                  const canSpawn = canSpawnTemplate(template);
+                  const active = hasActiveInstance(template.id);
+                  const resourceIds = reward.resourceDrops.map((drop) => drop.id);
                   return (
                     <div
-                      key={`${categoryKey}-${template.templateId}`}
+                      key={`${categoryKey}-${template.id}`}
                       className={`relative rounded-xl border p-4 space-y-3 ${
-                        canTake
+                        canSpawn
                           ? "border-slate-700 bg-slate-950/50"
                           : "border-slate-800 bg-slate-900/30 opacity-60"
                       }`}
                     >
-                      {renderPriorityBadge(template.priority)}
                       <div className="flex items-center justify-between">
                         <div>
-                          <div className="text-sm font-medium text-slate-200">{template.name}</div>
+                          <div className="text-sm font-medium text-slate-200">{template.title}</div>
+                          <div className="text-xs text-slate-500 mt-1">
+                            预计 {template.estimatedMinutes} 分钟 · {formatDifficulty(template.difficulty)}
+                          </div>
                         </div>
-                        <span className="text-xs text-slate-500">EXP {baseReward.exp}</span>
+                        {template.repeatable && (
+                          <span className="text-[11px] px-2 py-1 rounded-full border border-violet-400/40 text-violet-200 bg-violet-500/10">
+                            可重复
+                          </span>
+                        )}
                       </div>
-                      <div className="flex flex-wrap gap-2 text-xs text-slate-400">
-                        <span>🪙 {baseReward.coins}</span>
-                        {template.repeatable && <span>🔁 可重复</span>}
-                        <span>难度 {formatDifficulty(template.difficulty)}</span>
-                      </div>
-                      {template.subtasks.length > 0 && (
-                        <ul className="text-xs text-slate-400 list-disc list-inside space-y-1">
-                          {template.subtasks.map((step) => (
-                            <li key={step}>{step}</li>
-                          ))}
-                        </ul>
+                      {template.description && (
+                        <p className="text-xs text-slate-400">{template.description}</p>
                       )}
-                      {effects.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {effects.map((effect) => (
+                      <div className="flex flex-wrap gap-2 text-xs text-slate-400">
+                        <span>
+                          约 {formatRange(range.minCoins, range.maxCoins)} 金币，
+                          {formatRange(range.minExp, range.maxExp)} EXP
+                        </span>
+                      </div>
+                      {resourceIds.length > 0 && (
+                        <div className="flex flex-wrap gap-2 text-xs text-slate-300">
+                          {resourceIds.map((id) => (
                             <span
-                              key={effect}
-                              className="text-[11px] px-2 py-1 rounded-full bg-slate-900 border border-slate-700 text-slate-300"
+                              key={id}
+                              className="flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900/70 px-2 py-0.5"
                             >
-                              {effect}
+                              <span>{RESOURCE_ICONS[id] || "🎁"}</span>
+                              <span>{RESOURCES[id]?.name || id}</span>
                             </span>
                           ))}
                         </div>
                       )}
                       <button
                         onClick={() => handleAccept(template)}
-                        disabled={!canTake}
+                        disabled={!canSpawn}
                         className={`w-full rounded-lg px-3 py-2 text-sm font-medium transition ${
-                          canTake
+                          canSpawn
                             ? "bg-violet-500/80 hover:bg-violet-500 text-white"
                             : "bg-slate-800 text-slate-500 cursor-not-allowed"
                         }`}
                       >
-                        {canTake ? "接受任务" : "条件不足"}
+                        {active ? "进行中" : canSpawn ? "领取" : "已领取"}
                       </button>
                     </div>
                   );
@@ -376,77 +252,64 @@ export default function TasksPage() {
 
       <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4">
         <h2 className="text-sm font-medium text-slate-100">🗂 当前任务</h2>
-        {todoTasks.length === 0 ? (
-          <div className="text-sm text-slate-500">还没有已接受的任务。</div>
+        {activeInstances.length === 0 ? (
+          <div className="text-sm text-slate-500">还没有已领取的任务。</div>
         ) : (
           <div className="space-y-3">
-            {todoTasks.map((task) => {
-              const template = task.templateId ? taskConfig?.[task.templateId] : null;
-              const effects = formatEffect(task.category, task.effect || template?.effect);
-              const rewardPreview = computeRewards(template?.difficulty || task.difficulty);
-              const taskTitle = template?.name || task.title;
-              const subtasks = template?.subtasks || task.subtasks || [];
-              const repeatable = template?.repeatable ?? task.isRepeatable;
-              const priority = template?.priority || task.priority;
-              const canComplete = true;
+            {activeInstances.map((task) => {
+              const template = tasks.templates[task.templateId];
+              if (!template) return null;
+              const { range, reward } = buildRewardPreview(template);
+              const resourceIds = reward.resourceDrops.map((drop) => drop.id);
               return (
                 <div
-                  key={task.id}
+                  key={task.instanceId}
                   className="relative rounded-xl border border-slate-700 bg-slate-950/50 p-4"
                 >
-                  {renderPriorityBadge(priority)}
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-sm font-medium text-slate-200">{taskTitle}</div>
+                      <div className="text-sm font-medium text-slate-200">{template.title}</div>
                       <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-400">
                         <span className="rounded-full border border-slate-700 bg-slate-900/70 px-2 py-0.5">
-                          {resolveCategoryLabel(task.category)}
+                          {resolveCategoryLabel(template.category)}
                         </span>
                         <span className="rounded-full border border-slate-700 bg-slate-900/70 px-2 py-0.5">
-                          难度 {formatDifficulty(template?.difficulty || task.difficulty)}
+                          难度 {formatDifficulty(template.difficulty)}
                         </span>
+                        {template.repeatable && (
+                          <span className="rounded-full border border-violet-500/40 bg-violet-500/10 px-2 py-0.5 text-violet-200">
+                            可重复
+                          </span>
+                        )}
                       </div>
                     </div>
                     <span className="text-xs text-slate-400">
-                      预计 EXP {rewardPreview.exp}
+                      约 {formatRange(range.minCoins, range.maxCoins)} 金币
                     </span>
                   </div>
-                  {subtasks.length > 0 && (
-                    <ul className="mt-2 text-xs text-slate-400 list-disc list-inside space-y-1">
-                      {subtasks.map((step) => (
-                        <li key={step}>{step}</li>
-                      ))}
-                    </ul>
+                  {template.description && (
+                    <div className="mt-2 text-xs text-slate-400">{template.description}</div>
                   )}
-                  {effects.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {effects.map((effect) => (
+                  {resourceIds.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-300">
+                      {resourceIds.map((id) => (
                         <span
-                          key={effect}
-                          className="text-[11px] px-2 py-1 rounded-full bg-slate-900 border border-slate-700 text-slate-300"
+                          key={id}
+                          className="flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900/70 px-2 py-0.5"
                         >
-                          {effect}
+                          <span>{RESOURCE_ICONS[id] || "🎁"}</span>
+                          <span>{RESOURCES[id]?.name || id}</span>
                         </span>
                       ))}
-                    </div>
-                  )}
-                  {task.streakActive && (
-                    <div className="mt-2 text-xs text-amber-400">
-                      🔥 习惯叠加中（奖励 +20%）
                     </div>
                   )}
                   <div className="mt-3 flex items-center justify-between">
                     <div className="text-xs text-slate-500">
-                      预计奖励 🪙 {rewardPreview.coins} · {repeatable ? "可重复" : "一次性"}
+                      预计奖励 {formatRange(range.minExp, range.maxExp)} EXP
                     </div>
                     <button
-                      onClick={() => handleComplete(task.id)}
-                      disabled={!canComplete}
-                      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                        canComplete
-                          ? "bg-emerald-500/80 hover:bg-emerald-500 text-white"
-                          : "bg-slate-800 text-slate-500 cursor-not-allowed"
-                      }`}
+                      onClick={() => handleComplete(task.instanceId, template)}
+                      className="rounded-lg px-3 py-1.5 text-xs font-medium transition bg-emerald-500/80 hover:bg-emerald-500 text-white"
                     >
                       完成
                     </button>
@@ -460,19 +323,17 @@ export default function TasksPage() {
 
       <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4">
         <h2 className="text-sm font-medium text-slate-100">✅ 已完成任务</h2>
-        {doneTasks.length === 0 ? (
+        {doneInstances.length === 0 ? (
           <div className="text-sm text-slate-500">还没有完成记录。</div>
         ) : (
           <div className="space-y-2">
-            {doneTasks.map((task) => {
-              const template = task.templateId ? taskConfig?.[task.templateId] : null;
+            {doneInstances.map((task) => {
+              const template = tasks.templates[task.templateId];
               return (
-                <div key={task.id} className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
-                  <div className="text-sm text-slate-200">{template?.name || task.title}</div>
+                <div key={task.instanceId} className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
+                  <div className="text-sm text-slate-200">{template?.title || task.templateId}</div>
                   <div className="text-xs text-slate-500 mt-1">
-                    {task.completedAt
-                      ? new Date(task.completedAt).toLocaleString("zh-CN")
-                      : "已完成"}
+                    {task.finishedAt ? new Date(task.finishedAt).toLocaleString("zh-CN") : "已完成"}
                   </div>
                 </div>
               );
