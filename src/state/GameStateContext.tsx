@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { computeReward } from "@/game/config/rewards";
+import { BOARD_TILES, type BoardTile } from "@/game/config/boardConfig";
 import { RESOURCES } from "@/game/config/resources";
 import { TASK_TEMPLATES } from "@/game/config/tasksConfig";
 import { CRAFTING_RECIPES } from "@/game/config/craftingConfig";
@@ -90,6 +91,17 @@ export type GameState = {
   resources: Record<string, number>;
   inventory: Record<string, number>;
   dailyDrop: DailyDrop | null;
+  board: {
+    tiles: BoardTile[];
+  };
+  player: {
+    position: number;
+    laps: number;
+  };
+  npc: {
+    position: number;
+    laps: number;
+  };
   worldTime: {
     currentDay: number;
     lastAdvanceAt: number | null;
@@ -126,6 +138,17 @@ function createDefaultState(): GameState {
     resources: buildDefaultResources(),
     inventory: {},
     dailyDrop: null,
+    board: {
+      tiles: BOARD_TILES,
+    },
+    player: {
+      position: 0,
+      laps: 0,
+    },
+    npc: {
+      position: 0,
+      laps: 0,
+    },
     worldTime: {
       currentDay: 1,
       lastAdvanceAt: null,
@@ -144,6 +167,14 @@ function normalizeState(raw: Partial<GameState> | null): GameState {
   const base = createDefaultState();
   if (!raw || typeof raw !== "object") return base;
 
+  const tiles = Array.isArray(raw.board?.tiles) ? raw.board?.tiles : base.board.tiles;
+  const tileCount = tiles.length || base.board.tiles.length;
+  const normalizePosition = (value: number | undefined) => {
+    const position = Number.isFinite(value) ? Math.floor(Number(value)) : 0;
+    if (tileCount <= 0) return 0;
+    return ((position % tileCount) + tileCount) % tileCount;
+  };
+
   return {
     coins: Number.isFinite(raw.coins) ? Number(raw.coins) : base.coins,
     exp: Number.isFinite(raw.exp) ? Number(raw.exp) : base.exp,
@@ -155,6 +186,17 @@ function normalizeState(raw: Partial<GameState> | null): GameState {
       ...(raw.inventory || {}),
     },
     dailyDrop: raw.dailyDrop ?? base.dailyDrop,
+    board: {
+      tiles,
+    },
+    player: {
+      position: normalizePosition(raw.player?.position),
+      laps: Number.isFinite(raw.player?.laps) ? Math.max(0, Math.floor(raw.player?.laps ?? 0)) : 0,
+    },
+    npc: {
+      position: normalizePosition(raw.npc?.position),
+      laps: Number.isFinite(raw.npc?.laps) ? Math.max(0, Math.floor(raw.npc?.laps ?? 0)) : 0,
+    },
     worldTime: {
       currentDay: raw.worldTime?.currentDay ?? base.worldTime.currentDay,
       lastAdvanceAt: raw.worldTime?.lastAdvanceAt ?? base.worldTime.lastAdvanceAt,
@@ -282,6 +324,8 @@ const GameStateContext = createContext<
       templateId: string,
       options?: { bonusMultiplier?: number; startedAt?: number | null }
     ) => TaskInstance | null;
+    movePlayer: (steps: number) => void;
+    moveNpc: (steps: number) => void;
     completeTaskInstance: (
       instanceId: string,
       options?: { actualMinutes?: number }
@@ -611,6 +655,59 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
     return instance;
   }, []);
 
+  const movePlayer = useCallback((steps: number) => {
+    if (!Number.isFinite(steps) || !steps) return;
+    setState((prev) => {
+      const tileCount = prev.board.tiles.length;
+      if (!tileCount) return prev;
+      const from = prev.player.position;
+      const target = from + steps;
+      const to = ((target % tileCount) + tileCount) % tileCount;
+      const lapsBefore = prev.player.laps;
+      const lapsAfter = target >= tileCount ? lapsBefore + 1 : lapsBefore;
+      const entry = buildHistoryEntry("board_move_player", {
+        from,
+        to,
+        steps,
+        lapsBefore,
+        lapsAfter,
+      });
+      return {
+        ...prev,
+        player: {
+          position: to,
+          laps: lapsAfter,
+        },
+        history: pushHistoryEntry(entry, prev.history),
+      };
+    });
+  }, []);
+
+  const moveNpc = useCallback((steps: number) => {
+    if (!Number.isFinite(steps) || !steps) return;
+    setState((prev) => {
+      const tileCount = prev.board.tiles.length;
+      if (!tileCount) return prev;
+      const from = prev.npc.position;
+      const target = from + steps;
+      const to = ((target % tileCount) + tileCount) % tileCount;
+      const lapsAfter = target >= tileCount ? prev.npc.laps + 1 : prev.npc.laps;
+      const entry = buildHistoryEntry("board_move_npc", {
+        from,
+        to,
+        steps,
+      });
+      return {
+        ...prev,
+        npc: {
+          position: to,
+          laps: lapsAfter,
+        },
+        history: pushHistoryEntry(entry, prev.history),
+      };
+    });
+  }, []);
+
   const completeTaskInstance = useCallback(
     (instanceId: string, options?: { actualMinutes?: number }) => {
       const current = stateRef.current;
@@ -649,6 +746,14 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       const streakMultiplier = nextCount >= 3 ? 1.2 : 1;
       const batchMultiplier = instance.bonusMultiplier ?? 1;
       const rewardMultiplier = streakMultiplier * batchMultiplier;
+      const boardSteps =
+        template.difficulty === "tiny" || template.difficulty === "small"
+          ? 1
+          : template.difficulty === "medium"
+            ? 2
+            : template.difficulty === "large"
+              ? 3
+              : 4;
 
       const reward = {
         ...baseReward,
@@ -676,6 +781,7 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
           rewardMultiplier,
           streak: nextStreak,
           bonusMultiplier: batchMultiplier,
+          boardSteps,
         });
         const updatedActive = template.repeatable
           ? prev.tasks.active.filter((item) => item.instanceId !== instanceId)
@@ -706,10 +812,11 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       addCoins(reward.coins, "task_complete");
       addExp(reward.exp, "task_complete");
       addResources(resourceChanges, "task_complete");
+      movePlayer(boardSteps);
 
       return { ok: true, reward };
     },
-    [addCoins, addExp, addResources]
+    [addCoins, addExp, addResources, movePlayer]
   );
 
   const advanceWorldDay = useCallback(() => {
@@ -745,6 +852,8 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       claimDailyDrop,
       registerTaskTemplates,
       spawnTaskInstance,
+      movePlayer,
+      moveNpc,
       completeTaskInstance,
       advanceWorldDay,
       pushHistory,
@@ -765,6 +874,8 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       claimDailyDrop,
       registerTaskTemplates,
       spawnTaskInstance,
+      movePlayer,
+      moveNpc,
       completeTaskInstance,
       advanceWorldDay,
       pushHistory,

@@ -46,6 +46,8 @@ export default function Page() {
     dailyDrop,
     claimDailyDrop,
     tasks: survivalTasks,
+    board,
+    player,
     spawnTaskInstance,
     worldTime,
     advanceWorldDay,
@@ -141,6 +143,7 @@ export default function Page() {
   const recentCompletions = completedTasks.slice(0, 4);
   const canAdvanceWorld =
     !worldTime?.lastAdvanceAt || Date.now() - worldTime.lastAdvanceAt >= 6 * 60 * 60 * 1000;
+  const currentTile = board?.tiles?.[player?.position ?? 0];
 
   return (
     <div className="space-y-6">
@@ -152,6 +155,10 @@ export default function Page() {
           人生 · 饥荒魔法版 LifeUP
         </h1>
         <div className="text-sm text-slate-400">第 {worldTime?.currentDay ?? 1} 天 · LifeUP 生存日志</div>
+        <div className="text-sm text-slate-400">
+          📍 你现在在：{currentTile?.name || "未知区域"}（第 {(player?.laps ?? 0) + 1} 圈 · 第{" "}
+          {(player?.position ?? 0) + 1} 格）
+        </div>
         <p className="text-sm text-slate-400 max-w-2xl">
           管理饱食、精神与生命，穿行现实日循环，用任务与事件雕刻你的荒野命运。
         </p>
