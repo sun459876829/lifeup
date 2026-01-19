@@ -44,6 +44,20 @@ export type TaskInstance = {
   startedAt?: number | null;
   finishedAt?: number | null;
   actualMinutes?: number | null;
+  bonusMultiplier?: number | null;
+};
+
+export type ParkedIdea = {
+  id: string;
+  text: string;
+  createdAt: number;
+  convertedAt?: number | null;
+  templateId?: string | null;
+};
+
+export type TaskStreakState = {
+  count: number;
+  lastDoneDay: number | null;
 };
 
 export type HistoryEntry = {
@@ -85,6 +99,8 @@ export type GameState = {
     active: TaskInstance[];
   };
   history: HistoryEntry[];
+  parkedIdeas: ParkedIdea[];
+  taskStreaks: Record<string, TaskStreakState>;
 };
 
 const STORAGE_KEY = "lifeup.survival.gamestate.v1";
@@ -119,6 +135,8 @@ function createDefaultState(): GameState {
       active: [],
     },
     history: [],
+    parkedIdeas: [],
+    taskStreaks: {},
   };
 }
 
@@ -149,6 +167,8 @@ function normalizeState(raw: Partial<GameState> | null): GameState {
       active: Array.isArray(raw.tasks?.active) ? raw.tasks.active : [],
     },
     history: Array.isArray(raw.history) ? raw.history : base.history,
+    parkedIdeas: Array.isArray(raw.parkedIdeas) ? raw.parkedIdeas : base.parkedIdeas,
+    taskStreaks: raw.taskStreaks || base.taskStreaks,
   };
 }
 
@@ -214,6 +234,16 @@ function randomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+function normalizeTaskStreakState(state?: TaskStreakState | null): TaskStreakState {
+  if (!state || typeof state !== "object") {
+    return { count: 0, lastDoneDay: null };
+  }
+  return {
+    count: Number.isFinite(state.count) ? Math.max(0, Math.floor(state.count)) : 0,
+    lastDoneDay: Number.isFinite(state.lastDoneDay) ? state.lastDoneDay : null,
+  };
+}
+
 function generateDailyDrop(day: number): DailyDrop {
   const dropCount = randomInt(1, 3);
   const drops: DailyDrop["drops"] = [];
@@ -248,13 +278,19 @@ const GameStateContext = createContext<
     useItem: (itemId: string) => boolean;
     claimDailyDrop: () => boolean;
     registerTaskTemplates: (templates: Record<string, TaskTemplate>) => void;
-    spawnTaskInstance: (templateId: string) => TaskInstance | null;
+    spawnTaskInstance: (
+      templateId: string,
+      options?: { bonusMultiplier?: number; startedAt?: number | null }
+    ) => TaskInstance | null;
     completeTaskInstance: (
       instanceId: string,
       options?: { actualMinutes?: number }
     ) => { ok: boolean; reward?: ReturnType<typeof computeReward> };
     advanceWorldDay: () => void;
     pushHistory: (entry: HistoryEntry) => void;
+    addParkedIdea: (text: string) => ParkedIdea | null;
+    deleteParkedIdea: (ideaId: string) => void;
+    markIdeaConverted: (ideaId: string, templateId: string) => void;
   }) | null
 >(null);
 
@@ -477,7 +513,60 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const spawnTaskInstance = useCallback((templateId: string) => {
+  const addParkedIdea = useCallback((text: string) => {
+    const trimmed = text?.trim();
+    if (!trimmed) return null;
+    const idea: ParkedIdea = {
+      id: newId(),
+      text: trimmed,
+      createdAt: Date.now(),
+      convertedAt: null,
+      templateId: null,
+    };
+    setState((prev) => {
+      const entry = buildHistoryEntry("idea_add", {
+        ideaId: idea.id,
+        text: idea.text,
+      });
+      return {
+        ...prev,
+        parkedIdeas: [idea, ...prev.parkedIdeas],
+        history: pushHistoryEntry(entry, prev.history),
+      };
+    });
+    return idea;
+  }, []);
+
+  const deleteParkedIdea = useCallback((ideaId: string) => {
+    if (!ideaId) return;
+    setState((prev) => {
+      const entry = buildHistoryEntry("idea_delete", { ideaId });
+      return {
+        ...prev,
+        parkedIdeas: prev.parkedIdeas.filter((idea) => idea.id !== ideaId),
+        history: pushHistoryEntry(entry, prev.history),
+      };
+    });
+  }, []);
+
+  const markIdeaConverted = useCallback((ideaId: string, templateId: string) => {
+    if (!ideaId) return;
+    setState((prev) => ({
+      ...prev,
+      parkedIdeas: prev.parkedIdeas.map((idea) =>
+        idea.id === ideaId
+          ? {
+              ...idea,
+              convertedAt: Date.now(),
+              templateId: templateId || idea.templateId,
+            }
+          : idea
+      ),
+    }));
+  }, []);
+
+  const spawnTaskInstance = useCallback(
+    (templateId: string, options?: { bonusMultiplier?: number; startedAt?: number | null }) => {
     if (!templateId) return null;
     const template = stateRef.current.tasks.templates[templateId];
     if (!template) return null;
@@ -496,10 +585,11 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
     const instance: TaskInstance = {
       instanceId: newId(),
       templateId,
-      status: "pending",
-      startedAt: Date.now(),
+      status: "active",
+      startedAt: options?.startedAt ?? Date.now(),
       finishedAt: null,
       actualMinutes: null,
+      bonusMultiplier: options?.bonusMultiplier ?? null,
     };
 
     setState((prev) => {
@@ -530,13 +620,41 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       if (!template) return { ok: false };
 
       const estimatedMinutes = Math.max(5, template.estimatedMinutes);
-      const actualMinutes = options?.actualMinutes ?? instance.actualMinutes ?? null;
+      const finishedAt = Date.now();
+      const computedMinutes =
+        options?.actualMinutes ??
+        (instance.startedAt ? Math.round((finishedAt - instance.startedAt) / 60000) : null) ??
+        instance.actualMinutes ??
+        null;
+      const actualMinutes = computedMinutes && computedMinutes > 0 ? computedMinutes : estimatedMinutes;
 
-      const reward = computeReward({
-        minutes: estimatedMinutes,
+      const baseReward = computeReward({
+        minutes: actualMinutes || estimatedMinutes,
         difficulty: template.difficulty,
         category: template.category,
       });
+
+      const currentDay = current.worldTime.currentDay;
+      const existingStreak = normalizeTaskStreakState(current.taskStreaks?.[template.id]);
+      const nextCount =
+        existingStreak.lastDoneDay === currentDay
+          ? existingStreak.count
+          : existingStreak.lastDoneDay === currentDay - 1
+            ? existingStreak.count + 1
+            : 1;
+      const nextStreak: TaskStreakState = {
+        count: nextCount,
+        lastDoneDay: currentDay,
+      };
+      const streakMultiplier = nextCount >= 3 ? 1.2 : 1;
+      const batchMultiplier = instance.bonusMultiplier ?? 1;
+      const rewardMultiplier = streakMultiplier * batchMultiplier;
+
+      const reward = {
+        ...baseReward,
+        coins: Math.round(baseReward.coins * rewardMultiplier),
+        exp: Math.round(baseReward.exp * rewardMultiplier),
+      };
 
       const resourceChanges = reward.resourceDrops.reduce<Record<string, number>>(
         (acc, drop) => {
@@ -554,6 +672,10 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
           exp: reward.exp,
           resourceDrops: reward.resourceDrops,
           estimatedMinutes,
+          actualMinutes,
+          rewardMultiplier,
+          streak: nextStreak,
+          bonusMultiplier: batchMultiplier,
         });
         const updatedActive = template.repeatable
           ? prev.tasks.active.filter((item) => item.instanceId !== instanceId)
@@ -562,7 +684,7 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
                 ? {
                     ...item,
                     status: "done",
-                    finishedAt: Date.now(),
+                    finishedAt,
                     actualMinutes,
                   }
                 : item
@@ -572,6 +694,10 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
           tasks: {
             ...prev.tasks,
             active: updatedActive,
+          },
+          taskStreaks: {
+            ...prev.taskStreaks,
+            [template.id]: nextStreak,
           },
           history: pushHistoryEntry(entry, prev.history),
         };
@@ -622,6 +748,9 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       completeTaskInstance,
       advanceWorldDay,
       pushHistory,
+      addParkedIdea,
+      deleteParkedIdea,
+      markIdeaConverted,
     }),
     [
       state,
@@ -639,6 +768,9 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       completeTaskInstance,
       advanceWorldDay,
       pushHistory,
+      addParkedIdea,
+      deleteParkedIdea,
+      markIdeaConverted,
     ]
   );
 

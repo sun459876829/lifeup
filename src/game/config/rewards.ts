@@ -128,7 +128,8 @@ export function computeReward(input: RewardInput): RewardOutput {
   }
 
   const finalCoins = roundCoins(coins);
-  const exp = roundCoins(finalCoins * 0.8);
+  const expMultiplier = input.category === "context" ? 1.15 : 1;
+  const exp = roundCoins(finalCoins * 0.8 * expMultiplier);
 
   return {
     coins: finalCoins,

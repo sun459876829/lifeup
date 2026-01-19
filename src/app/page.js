@@ -41,7 +41,15 @@ export default function Page() {
     undoLastAction,
     taskConfig,
   } = useWorld();
-  const { hydrated: survivalHydrated, dailyDrop, claimDailyDrop } = useGameState();
+  const {
+    hydrated: survivalHydrated,
+    dailyDrop,
+    claimDailyDrop,
+    tasks: survivalTasks,
+    spawnTaskInstance,
+    worldTime,
+    advanceWorldDay,
+  } = useGameState();
   const [message, setMessage] = useState("");
   const [uiSettings, setUiSettings] = useState(DEFAULT_UI_SETTINGS);
   const coinRmb = (currency.coins * COIN_TO_RMB).toFixed(1);
@@ -97,8 +105,42 @@ export default function Page() {
     setTimeout(() => setMessage(""), 2000);
   }
 
+  function handleAdvanceWorldDay() {
+    const lastAdvanceAt = worldTime?.lastAdvanceAt;
+    const now = Date.now();
+    const minIntervalMs = 6 * 60 * 60 * 1000;
+    if (lastAdvanceAt && now - lastAdvanceAt < minIntervalMs) {
+      setMessage("距离上次推进还不到 6 小时，先好好生活一会儿吧～");
+      setTimeout(() => setMessage(""), 2500);
+      return;
+    }
+    advanceWorldDay();
+    setMessage("⏳ 世界已推进到下一天。");
+    setTimeout(() => setMessage(""), 2000);
+  }
+
+  const contextTemplates = useMemo(() => {
+    const list = Object.values(survivalTasks?.templates || {}).filter(
+      (template) => template.category === "context"
+    );
+    const shuffled = [...list].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, 3);
+  }, [survivalTasks?.templates]);
+
+  function handleQuickContext(template) {
+    const instance = spawnTaskInstance(template.id);
+    if (!instance) {
+      setMessage("该任务已在进行中或达到上限。");
+    } else {
+      setMessage(`🚶 已开始「${template.title}」`);
+    }
+    setTimeout(() => setMessage(""), 2000);
+  }
+
   const todoTasks = tasks.filter((task) => task.status === "todo").slice(0, 5);
   const recentCompletions = completedTasks.slice(0, 4);
+  const canAdvanceWorld =
+    !worldTime?.lastAdvanceAt || Date.now() - worldTime.lastAdvanceAt >= 6 * 60 * 60 * 1000;
 
   return (
     <div className="space-y-6">
@@ -109,6 +151,7 @@ export default function Page() {
         <h1 className="text-3xl font-semibold bg-gradient-to-r from-violet-300 via-sky-200 to-emerald-300 bg-clip-text text-transparent">
           人生 · 饥荒魔法版 LifeUP
         </h1>
+        <div className="text-sm text-slate-400">第 {worldTime?.currentDay ?? 1} 天 · LifeUP 生存日志</div>
         <p className="text-sm text-slate-400 max-w-2xl">
           管理饱食、精神与生命，穿行现实日循环，用任务与事件雕刻你的荒野命运。
         </p>
@@ -199,23 +242,36 @@ export default function Page() {
             <div className="text-sm font-medium text-slate-100">🌊 今日漂流物</div>
             <div className="text-xs text-slate-500 mt-1">每天推进世界时间后，都会刷新漂流物奖励。</div>
           </div>
-          <button
-            onClick={handleClaimDailyDrop}
-            disabled={!survivalHydrated || !dailyDrop || dailyDrop.claimed}
-            className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-              survivalHydrated && dailyDrop && !dailyDrop.claimed
-                ? "bg-emerald-500/80 hover:bg-emerald-500 text-white"
-                : "bg-slate-800 text-slate-500 cursor-not-allowed"
-            }`}
-          >
-            {!survivalHydrated
-              ? "加载中"
-              : dailyDrop
-                ? dailyDrop.claimed
-                  ? "今日已打捞"
-                  : "打捞漂流物"
-                : "尚未刷新"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handleClaimDailyDrop}
+              disabled={!survivalHydrated || !dailyDrop || dailyDrop.claimed}
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                survivalHydrated && dailyDrop && !dailyDrop.claimed
+                  ? "bg-emerald-500/80 hover:bg-emerald-500 text-white"
+                  : "bg-slate-800 text-slate-500 cursor-not-allowed"
+              }`}
+            >
+              {!survivalHydrated
+                ? "加载中"
+                : dailyDrop
+                  ? dailyDrop.claimed
+                    ? "今日已打捞"
+                    : "打捞漂流物"
+                  : "尚未刷新"}
+            </button>
+            <button
+              onClick={handleAdvanceWorldDay}
+              aria-disabled={!canAdvanceWorld}
+              className={`rounded-lg border px-4 py-2 text-sm transition ${
+                canAdvanceWorld
+                  ? "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-violet-400 hover:text-violet-200"
+                  : "border-slate-800 bg-slate-900/40 text-slate-500 cursor-not-allowed"
+              }`}
+            >
+              推进到下一天
+            </button>
+          </div>
         </div>
         {survivalHydrated && dailyDrop ? (
           <div className="space-y-2 text-xs text-slate-400">
@@ -243,6 +299,40 @@ export default function Page() {
         ) : (
           <div className="text-xs text-slate-500">
             {survivalHydrated ? "等待下一次世界推进。" : "正在同步漂流物…"}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-4 shadow-lg shadow-slate-950/30">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-medium text-slate-100">状态有点糊？试试换个场景</h2>
+            <div className="text-xs text-slate-500 mt-1">快速切换场景，给精神状态一点加成。</div>
+          </div>
+          <Link href="/tasks" className="text-xs text-violet-300 hover:text-violet-200 transition">
+            更多情境任务 →
+          </Link>
+        </div>
+        {contextTemplates.length === 0 ? (
+          <div className="text-sm text-slate-500">暂无情境切换任务。</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {contextTemplates.map((template) => (
+              <div
+                key={template.id}
+                className="rounded-xl border border-slate-700 bg-slate-950/60 p-4 space-y-2"
+              >
+                <div className="text-sm font-medium text-slate-100">{template.title}</div>
+                <div className="text-xs text-slate-500">预计 {template.estimatedMinutes} 分钟</div>
+                <button
+                  type="button"
+                  onClick={() => handleQuickContext(template)}
+                  className="w-full rounded-lg bg-violet-500/80 hover:bg-violet-500 text-xs font-medium text-white py-2"
+                >
+                  一键开始
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </section>
