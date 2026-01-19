@@ -3,7 +3,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { RANDOM_EVENTS } from "./gameConfig/randomEventsConfig";
 import { ACHIEVEMENTS_CONFIG } from "./gameConfig/achievementsConfig";
-import { calculateReward, getSanityGain, resolveTaskKind, STAT_LIMITS } from "../game/config";
+import { getSanityGain, resolveTaskKind, STAT_LIMITS } from "../game/config";
+import { computeRewards, loadAllTasks, resolveDifficultyValue } from "../lib/loadTasks";
 import {
   loadHistory,
   pushHistory as pushHistoryEntry,
@@ -31,6 +32,8 @@ const DEFAULT_BURST = {
   lastKind: null,
   comboCount: 0,
 };
+
+const TASK_CONFIG = loadAllTasks();
 
 function newId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -86,9 +89,11 @@ function normalizeStats(stats = {}) {
 }
 
 function normalizeTaskMeta(task) {
+  const difficultyKey = computeRewards(task?.difficulty).difficultyKey;
   return {
     minutes: Number(task.minutes) || 10,
-    difficulty: Number(task.difficulty) || 1,
+    difficulty: difficultyKey,
+    difficultyValue: resolveDifficultyValue(difficultyKey),
     kind: resolveTaskKind(task.category, task.kind),
   };
 }
@@ -158,6 +163,7 @@ function migrateLegacyState(raw) {
         lastCompletedAt: task.lastCompletedAt || undefined,
         minutes: meta.minutes,
         difficulty: meta.difficulty,
+        difficultyValue: meta.difficultyValue,
         kind: meta.kind,
       };
     });
@@ -760,37 +766,43 @@ export function WorldProvider({ children }) {
   const registerTask = useCallback((taskInput) => {
     if (!state || !taskInput) return null;
 
-    const meta = normalizeTaskMeta(taskInput);
-    const baseReward = calculateReward({
-      difficulty: meta.difficulty,
-      minutes: meta.minutes,
-      kind: meta.kind,
-      comboCount: 1,
+    const template = taskInput.templateId ? TASK_CONFIG[taskInput.templateId] : null;
+    const baseDifficulty = taskInput.difficulty ?? template?.difficulty;
+    const meta = normalizeTaskMeta({
+      ...template,
+      ...taskInput,
+      difficulty: baseDifficulty,
     });
-    const sanityBonus = getSanityGain(meta.difficulty);
+    const baseReward = computeRewards(baseDifficulty);
+    const sanityBonus = getSanityGain(meta.difficultyValue);
+    const instanceId = newId();
 
     const created = {
-      id: newId(),
-      title: taskInput.title,
-      category: taskInput.category || "other",
+      id: instanceId,
+      instanceId,
+      templateId: template?.templateId || taskInput.templateId,
+      title: template?.name || taskInput.title || "未命名任务",
+      category: template?.category || taskInput.category || "other",
       notes: taskInput.notes || "",
-      subtype: taskInput.subtype,
+      subtype: taskInput.subtype || template?.subtype,
       status: "todo",
-      isRepeatable: Boolean(taskInput.isRepeatable),
+      isRepeatable: Boolean(template?.repeatable ?? taskInput.isRepeatable ?? taskInput.repeatable),
       createdAt: Date.now(),
-      exp: taskInput.exp || baseReward.exp,
-      coinsReward: taskInput.coinsReward || baseReward.coins,
-      effect: taskInput.effect || { sanity: sanityBonus },
-      rewardPreview: taskInput.rewardPreview,
+      exp: baseReward.exp,
+      coinsReward: baseReward.coins,
+      effect: template?.effect || taskInput.effect || { sanity: sanityBonus },
+      rewardPreview: { coins: baseReward.coins, exp: baseReward.exp },
       lastCompletedAt: taskInput.lastCompletedAt,
-      prerequisites: taskInput.prerequisites || [],
-      requirements: taskInput.requirements || {},
-      tags: taskInput.tags || [],
+      prerequisites: template?.prerequisites || taskInput.prerequisites || [],
+      requirements: template?.requirements || taskInput.requirements || {},
+      tags: template?.tags || taskInput.tags || [],
       isUserCreated: Boolean(taskInput.isUserCreated),
       size: taskInput.size,
       minutes: meta.minutes,
       difficulty: meta.difficulty,
+      difficultyValue: meta.difficultyValue,
       kind: meta.kind,
+      subtasks: template?.subtasks || taskInput.subtasks || [],
     };
 
     setState((prev) => ({
@@ -851,17 +863,17 @@ export function WorldProvider({ children }) {
       baseState.burst.lastKind && baseState.burst.lastKind === burstKind
         ? (baseState.burst.comboCount || 0) + 1
         : 1;
-    const baseReward = calculateReward({
-      difficulty: meta.difficulty,
-      minutes: meta.minutes,
-      kind: burstKind,
-      comboCount: nextComboCount,
-    });
+    const baseReward = computeRewards(meta.difficulty);
+    const burstBonus = Math.min(0.05 * Math.max(0, nextComboCount - 1), 0.5);
     const rewardExp = Math.max(
       0,
-      Math.round(baseReward.exp * rewardModifier.expMultiplier) + rewardModifier.expBonus
+      Math.round(baseReward.exp * (1 + burstBonus) * rewardModifier.expMultiplier) +
+        rewardModifier.expBonus
     );
-    const rewardCoins = Math.max(0, Math.round(baseReward.coins * rewardModifier.coinMultiplier));
+    const rewardCoins = Math.max(
+      0,
+      Math.round(baseReward.coins * (1 + burstBonus) * rewardModifier.coinMultiplier)
+    );
 
     const completedAt = Date.now();
 
@@ -894,7 +906,7 @@ export function WorldProvider({ children }) {
       comboCount: nextComboCount,
     };
 
-    const baseSanityGain = getSanityGain(meta.difficulty);
+    const baseSanityGain = getSanityGain(meta.difficultyValue);
 
     const updatedStats = clampStats({
       ...baseState.stats,
@@ -911,6 +923,7 @@ export function WorldProvider({ children }) {
     const completedEntry = {
       id: newId(),
       taskId: task.id,
+      templateId: task.templateId,
       title: task.title,
       category: task.category,
       subtype: task.subtype,
@@ -926,6 +939,7 @@ export function WorldProvider({ children }) {
         type: "task_complete",
         payload: {
           taskId: task.id,
+          templateId: task.templateId,
           taskTitle: task.title,
           previousStatus,
           newStatus,
@@ -980,7 +994,7 @@ export function WorldProvider({ children }) {
       ok: true,
       rewardExp,
       rewardCoins,
-      burstBonus: baseReward.burstBonus,
+      burstBonus,
       comboCount: nextComboCount,
     };
   }, [state]);
@@ -1215,6 +1229,7 @@ export function WorldProvider({ children }) {
     tickets: state?.tickets || { game: 0 },
     tasks: state?.tasks || [],
     completedTasks: state?.completedTasks || [],
+    taskConfig: TASK_CONFIG,
     treasureMaps: state?.treasureMaps || [],
     claims: state?.claims || [],
     achievements: state?.achievements || [],
