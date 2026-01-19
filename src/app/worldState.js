@@ -4,7 +4,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { RANDOM_EVENTS } from "./gameConfig/randomEventsConfig";
 import { ACHIEVEMENTS_CONFIG } from "./gameConfig/achievementsConfig";
 import { getSanityGain, resolveTaskKind, STAT_LIMITS } from "../game/config";
-import { computeRewards, loadAllTasks, resolveDifficultyValue } from "../lib/loadTasks";
+import {
+  computeRewards,
+  loadAllTasks,
+  normalizeTaskPriority,
+  resolveDifficultyValue,
+} from "../lib/loadTasks";
 import {
   getStreakRewardMultiplier,
   normalizeTaskStreak,
@@ -195,6 +200,7 @@ function migrateLegacyState(raw) {
         coinsReward: task.rewardCoins || task.coinsReward || 0,
         effect: task.effect || undefined,
         lastCompletedAt: task.lastCompletedAt || undefined,
+        priority: normalizeTaskPriority(task.priority),
         streak: streakState.streak,
         streakActive: streakState.streakActive,
         minutes: meta.minutes,
@@ -846,6 +852,7 @@ export function WorldProvider({ children }) {
       status: "todo",
       isRepeatable: Boolean(template?.repeatable ?? taskInput.isRepeatable ?? taskInput.repeatable),
       createdAt: Date.now(),
+      priority: normalizeTaskPriority(template?.priority || taskInput.priority),
       exp: baseReward.exp,
       coinsReward: baseReward.coins,
       effect: template?.effect || taskInput.effect || { sanity: sanityBonus },

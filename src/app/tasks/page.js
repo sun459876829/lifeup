@@ -28,6 +28,53 @@ const SYSTEM_CATEGORY_LABELS = {
 
 const CATEGORY_LABELS = { ...SYSTEM_CATEGORY_LABELS, ...CUSTOM_CATEGORY_LABELS };
 
+const PRIORITY_BADGES = {
+  urgent: {
+    label: "URGENT",
+    className:
+      "bg-gradient-to-r from-rose-500 via-red-500 to-fuchsia-500 text-red-50 border border-rose-200/40 shadow-[0_0_12px_rgba(248,113,113,0.45)]",
+    glowClass: "bg-red-500/40",
+  },
+  soon: {
+    label: "SOON",
+    className:
+      "bg-gradient-to-r from-amber-400 via-orange-500 to-rose-400 text-orange-50 border border-amber-200/40 shadow-[0_0_12px_rgba(251,146,60,0.45)]",
+    glowClass: "bg-orange-500/40",
+  },
+  later: {
+    label: "LATER",
+    className:
+      "bg-gradient-to-r from-slate-500 via-slate-400 to-slate-300 text-slate-900 border border-slate-200/60 shadow-[0_0_12px_rgba(148,163,184,0.45)]",
+    glowClass: "bg-slate-400/40",
+  },
+  quick: {
+    label: "QUICK",
+    className:
+      "bg-gradient-to-r from-emerald-400 via-emerald-500 to-lime-400 text-emerald-950 border border-emerald-200/60 shadow-[0_0_12px_rgba(52,211,153,0.45)]",
+    glowClass: "bg-emerald-400/40",
+  },
+  long: {
+    label: "LONG",
+    className:
+      "bg-gradient-to-r from-sky-400 via-blue-500 to-indigo-400 text-blue-950 border border-blue-200/60 shadow-[0_0_12px_rgba(96,165,250,0.45)]",
+    glowClass: "bg-blue-400/40",
+  },
+};
+
+const PRIORITY_ALIASES = {
+  urgent: "urgent",
+  soon: "soon",
+  later: "later",
+  quick: "quick",
+  long: "long",
+  "优先紧急": "urgent",
+  "紧急": "urgent",
+  "尽快做": "soon",
+  "稍后做": "later",
+  "快速任务": "quick",
+  "长任务": "long",
+};
+
 function normalizeEffect(category, effect = {}) {
   return effect;
 }
@@ -48,6 +95,32 @@ function formatDifficulty(level) {
 
 function resolveCategoryLabel(category) {
   return CATEGORY_LABELS[category] || category || "其他";
+}
+
+function resolvePriorityKey(priority) {
+  if (!priority) return null;
+  const key = String(priority).trim().toLowerCase();
+  return PRIORITY_ALIASES[key] || null;
+}
+
+function renderPriorityBadge(priority) {
+  const key = resolvePriorityKey(priority);
+  if (!key) return null;
+  const badge = PRIORITY_BADGES[key];
+  if (!badge) return null;
+
+  return (
+    <span className="absolute left-3 top-3 z-10">
+      <span
+        className={`relative inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-[0.24em] ${badge.className}`}
+      >
+        <span
+          className={`absolute inset-0 -z-10 rounded-full blur-md opacity-80 ${badge.glowClass}`}
+        />
+        <span className="relative">{badge.label}</span>
+      </span>
+    </span>
+  );
 }
 
 export default function TasksPage() {
@@ -244,12 +317,13 @@ export default function TasksPage() {
                   return (
                     <div
                       key={`${categoryKey}-${template.templateId}`}
-                      className={`rounded-xl border p-4 space-y-3 ${
+                      className={`relative rounded-xl border p-4 space-y-3 ${
                         canTake
                           ? "border-slate-700 bg-slate-950/50"
                           : "border-slate-800 bg-slate-900/30 opacity-60"
                       }`}
                     >
+                      {renderPriorityBadge(template.priority)}
                       <div className="flex items-center justify-between">
                         <div>
                           <div className="text-sm font-medium text-slate-200">{template.name}</div>
@@ -313,9 +387,14 @@ export default function TasksPage() {
               const taskTitle = template?.name || task.title;
               const subtasks = template?.subtasks || task.subtasks || [];
               const repeatable = template?.repeatable ?? task.isRepeatable;
+              const priority = template?.priority || task.priority;
               const canComplete = true;
               return (
-                <div key={task.id} className="rounded-xl border border-slate-700 bg-slate-950/50 p-4">
+                <div
+                  key={task.id}
+                  className="relative rounded-xl border border-slate-700 bg-slate-950/50 p-4"
+                >
+                  {renderPriorityBadge(priority)}
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-sm font-medium text-slate-200">{taskTitle}</div>
