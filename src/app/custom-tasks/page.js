@@ -3,31 +3,23 @@
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { useWorld } from "../worldState";
-import { calculateReward } from "../../game/config";
+import { computeRewards, DIFFICULTY_ORDER } from "../../lib/loadTasks";
 
-const CATEGORY_OPTIONS = [
-  { value: "study", label: "学习", kind: "study" },
-  { value: "money", label: "工作赚钱", kind: "money" },
-  { value: "life", label: "生活整理", kind: "life" },
-  { value: "body", label: "运动身体", kind: "body" },
-  { value: "social", label: "社交", kind: "social" },
-  { value: "misc", label: "其他", kind: "misc" },
-];
+const DIFFICULTY_LABELS = {
+  tiny: "tiny · 微小",
+  small: "small · 轻松",
+  medium: "medium · 普通",
+  large: "large · 挑战",
+  huge: "huge · 史诗",
+};
 
-const DIFFICULTY_OPTIONS = [
-  { value: 1, label: "1 · 超轻松" },
-  { value: 2, label: "2 · 普通" },
-  { value: 3, label: "3 · 有点难" },
-  { value: 4, label: "4 · 挑战" },
-  { value: 5, label: "5 · 史诗任务" },
-];
-
-function resolveCategoryKind(category) {
-  return CATEGORY_OPTIONS.find((option) => option.value === category)?.kind || "misc";
+function resolveCategoryKind(category, templates) {
+  const matches = templates.find((template) => template.category === category);
+  return matches?.category || "misc";
 }
 
 export default function CustomTasksPage() {
-  const { hydrated, registerTask } = useWorld();
+  const { hydrated, registerTask, taskConfig } = useWorld();
   const titleRef = useRef(null);
   const [form, setForm] = useState({
     title: "",
@@ -38,17 +30,26 @@ export default function CustomTasksPage() {
   });
   const [feedback, setFeedback] = useState(null);
 
+  const categoryOptions = useMemo(() => {
+    const templates = Object.values(taskConfig || {});
+    const categories = Array.from(new Set(templates.map((template) => template.category)));
+    return categories.map((category) => ({ value: category, label: category }));
+  }, [taskConfig]);
+
+  const difficultyOptions = useMemo(
+    () =>
+      DIFFICULTY_ORDER.map((difficulty) => ({
+        value: difficulty,
+        label: DIFFICULTY_LABELS[difficulty] || difficulty,
+      })),
+    []
+  );
+
   const rewardPreview = useMemo(() => {
-    const minutesValue = Number(form.minutes);
-    const difficultyValue = Number(form.difficulty);
-    if (!minutesValue || !difficultyValue) return null;
-    return calculateReward({
-      difficulty: difficultyValue,
-      minutes: minutesValue,
-      kind: resolveCategoryKind(form.category),
-      comboCount: 1,
-    });
-  }, [form.category, form.difficulty, form.minutes]);
+    if (!form.difficulty) return null;
+    const reward = computeRewards(form.difficulty);
+    return { coins: reward.coins, exp: reward.exp };
+  }, [form.difficulty]);
 
   function handleChange(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -66,32 +67,26 @@ export default function CustomTasksPage() {
       return;
     }
 
-    const minutesValue = Number(form.minutes);
-    const difficultyValue = Number(form.difficulty);
-
-    if (!minutesValue || minutesValue < 5 || minutesValue > 180) {
-      setFeedback({ type: "error", text: "时长建议填写 5～180 分钟。" });
-      return;
-    }
-    if (!difficultyValue || difficultyValue < 1 || difficultyValue > 5) {
+    if (!form.difficulty) {
       setFeedback({ type: "error", text: "请选择任务难度。" });
       return;
     }
 
-    const preview = calculateReward({
-      difficulty: difficultyValue,
-      minutes: minutesValue,
-      kind: resolveCategoryKind(form.category),
-      comboCount: 1,
-    });
+    const minutesValue = Number(form.minutes);
+    if (!minutesValue || minutesValue < 5 || minutesValue > 180) {
+      setFeedback({ type: "error", text: "时长建议填写 5～180 分钟。" });
+      return;
+    }
+
+    const preview = computeRewards(form.difficulty);
 
     const created = registerTask({
       title,
       category: form.category,
       notes: form.notes.trim(),
-      difficulty: difficultyValue,
-      minutes: minutesValue,
-      kind: resolveCategoryKind(form.category),
+      difficulty: preview.difficultyKey,
+      minutes: Number(form.minutes) || 30,
+      kind: resolveCategoryKind(form.category, Object.values(taskConfig || {})),
       exp: preview.exp,
       coinsReward: preview.coins,
       rewardPreview: { coins: preview.coins, exp: preview.exp },
@@ -210,7 +205,7 @@ export default function CustomTasksPage() {
                   required
                 >
                   <option value="">请选择分类</option>
-                  {CATEGORY_OPTIONS.map((option) => (
+                  {categoryOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
@@ -248,7 +243,7 @@ export default function CustomTasksPage() {
                   required
                 >
                   <option value="">选择难度</option>
-                  {DIFFICULTY_OPTIONS.map((option) => (
+                  {difficultyOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>

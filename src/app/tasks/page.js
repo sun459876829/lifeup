@@ -2,8 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useWorld } from "../worldState";
-import { TASK_CATEGORIES, TASK_TEMPLATES } from "../gameConfig/tasksConfig";
-import { calculateReward, resolveTaskKind } from "../../game/config";
+import { computeRewards, resolveDifficultyValue } from "../../lib/loadTasks";
 
 const CUSTOM_CATEGORY_LABELS = {
   study: "学习",
@@ -14,10 +13,17 @@ const CUSTOM_CATEGORY_LABELS = {
   misc: "其他",
 };
 
-const SYSTEM_CATEGORY_LABELS = TASK_CATEGORIES.reduce((acc, item) => {
-  acc[item.key] = item.label;
-  return acc;
-}, {});
+const SYSTEM_CATEGORY_LABELS = {
+  learning: "学习",
+  course: "课程",
+  weight: "体重管理",
+  english: "英语",
+  photo: "拍照",
+  life: "生活",
+  nightclub: "夜场",
+  future: "人生主线",
+  other: "其他",
+};
 
 const CATEGORY_LABELS = { ...SYSTEM_CATEGORY_LABELS, ...CUSTOM_CATEGORY_LABELS };
 
@@ -35,7 +41,7 @@ function formatEffect(category, effect = {}) {
 }
 
 function formatDifficulty(level) {
-  const value = Math.min(5, Math.max(1, Number(level) || 1));
+  const value = Math.min(5, Math.max(1, resolveDifficultyValue(level)));
   return `${"★".repeat(value)}${"☆".repeat(5 - value)}`;
 }
 
@@ -44,32 +50,32 @@ function resolveCategoryLabel(category) {
 }
 
 export default function TasksPage() {
-  const { hydrated, tasks, stats, achievements, registerTask, completeTask, burst } = useWorld();
+  const { hydrated, tasks, stats, achievements, registerTask, completeTask, burst, taskConfig } =
+    useWorld();
   const [message, setMessage] = useState("");
   const lastClickRef = useRef(new Map());
 
   const groupedTemplates = useMemo(() => {
     const groups = {};
-    TASK_CATEGORIES.forEach((category) => {
-      groups[category.key] = [];
-    });
-    TASK_TEMPLATES.forEach((template) => {
+    Object.values(taskConfig || {}).forEach((template) => {
       if (!groups[template.category]) {
         groups[template.category] = [];
       }
       groups[template.category].push(template);
     });
     return groups;
-  }, []);
+  }, [taskConfig]);
+
+  const categories = useMemo(() => Object.keys(groupedTemplates), [groupedTemplates]);
 
   function handleAccept(template) {
-    const key = `accept-${template.category}-${template.title}`;
+    const key = `accept-${template.category}-${template.templateId}`;
     const now = Date.now();
     const lastClick = lastClickRef.current.get(key) || 0;
     if (now - lastClick < 1000) return;
     lastClickRef.current.set(key, now);
-    registerTask(template);
-    setMessage(`📌 已接受任务：「${template.title}」`);
+    registerTask({ templateId: template.templateId });
+    setMessage(`📌 已接受任务：「${template.name}」`);
     setTimeout(() => setMessage(""), 2000);
   }
 
@@ -147,27 +153,24 @@ export default function TasksPage() {
       <section className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-4">
         <h2 className="text-sm font-medium text-slate-100">🧾 可领取任务</h2>
         <div className="space-y-6">
-          {TASK_CATEGORIES.map((category) => (
-            <div key={category.key} className="space-y-3">
+          {categories.map((categoryKey) => (
+            <div key={categoryKey} className="space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-base font-semibold text-slate-200">{category.label}</div>
-                  <div className="text-xs text-slate-500">{category.description}</div>
+                  <div className="text-base font-semibold text-slate-200">
+                    {resolveCategoryLabel(categoryKey)}
+                  </div>
+                  <div className="text-xs text-slate-500">任务分类 · {categoryKey}</div>
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {(groupedTemplates[category.key] || []).map((template) => {
+                {(groupedTemplates[categoryKey] || []).map((template) => {
                   const effects = formatEffect(template.category, template.effect);
                   const canTake = canAccept(template);
-                  const baseReward = calculateReward({
-                    difficulty: template.difficulty || 1,
-                    minutes: template.minutes || 10,
-                    kind: resolveTaskKind(template.category, template.kind),
-                    comboCount: 1,
-                  });
+                  const baseReward = computeRewards(template.difficulty);
                   return (
                     <div
-                      key={`${category.key}-${template.title}`}
+                      key={`${categoryKey}-${template.templateId}`}
                       className={`rounded-xl border p-4 space-y-3 ${
                         canTake
                           ? "border-slate-700 bg-slate-950/50"
@@ -176,17 +179,22 @@ export default function TasksPage() {
                     >
                       <div className="flex items-center justify-between">
                         <div>
-                          <div className="text-sm font-medium text-slate-200">{template.title}</div>
-                          {template.subtype && (
-                            <div className="text-xs text-slate-500">{template.subtype}</div>
-                          )}
+                          <div className="text-sm font-medium text-slate-200">{template.name}</div>
                         </div>
                         <span className="text-xs text-slate-500">EXP {baseReward.exp}</span>
                       </div>
                       <div className="flex flex-wrap gap-2 text-xs text-slate-400">
                         <span>🪙 {baseReward.coins}</span>
-                        {template.isRepeatable && <span>🔁 可重复</span>}
+                        {template.repeatable && <span>🔁 可重复</span>}
+                        <span>难度 {formatDifficulty(template.difficulty)}</span>
                       </div>
+                      {template.subtasks.length > 0 && (
+                        <ul className="text-xs text-slate-400 list-disc list-inside space-y-1">
+                          {template.subtasks.map((step) => (
+                            <li key={step}>{step}</li>
+                          ))}
+                        </ul>
+                      )}
                       {effects.length > 0 && (
                         <div className="flex flex-wrap gap-2">
                           {effects.map((effect) => (
@@ -226,26 +234,24 @@ export default function TasksPage() {
         ) : (
           <div className="space-y-3">
             {todoTasks.map((task) => {
-              const effects = formatEffect(task.category, task.effect);
-              const resolvedKind = task.kind || resolveTaskKind(task.category, task.kind);
-              const rewardPreview = calculateReward({
-                difficulty: task.difficulty || 1,
-                minutes: task.minutes || 10,
-                kind: resolvedKind,
-                comboCount: 1,
-              });
+              const template = task.templateId ? taskConfig?.[task.templateId] : null;
+              const effects = formatEffect(task.category, task.effect || template?.effect);
+              const rewardPreview = computeRewards(template?.difficulty || task.difficulty);
+              const taskTitle = template?.name || task.title;
+              const subtasks = template?.subtasks || task.subtasks || [];
+              const repeatable = template?.repeatable ?? task.isRepeatable;
               const canComplete = true;
               return (
                 <div key={task.id} className="rounded-xl border border-slate-700 bg-slate-950/50 p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-sm font-medium text-slate-200">{task.title}</div>
+                      <div className="text-sm font-medium text-slate-200">{taskTitle}</div>
                       <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate-400">
                         <span className="rounded-full border border-slate-700 bg-slate-900/70 px-2 py-0.5">
                           {resolveCategoryLabel(task.category)}
                         </span>
                         <span className="rounded-full border border-slate-700 bg-slate-900/70 px-2 py-0.5">
-                          难度 {formatDifficulty(task.difficulty)}
+                          难度 {formatDifficulty(template?.difficulty || task.difficulty)}
                         </span>
                       </div>
                     </div>
@@ -253,6 +259,13 @@ export default function TasksPage() {
                       预计 EXP {rewardPreview.exp}
                     </span>
                   </div>
+                  {subtasks.length > 0 && (
+                    <ul className="mt-2 text-xs text-slate-400 list-disc list-inside space-y-1">
+                      {subtasks.map((step) => (
+                        <li key={step}>{step}</li>
+                      ))}
+                    </ul>
+                  )}
                   {effects.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {effects.map((effect) => (
@@ -267,7 +280,7 @@ export default function TasksPage() {
                   )}
                   <div className="mt-3 flex items-center justify-between">
                     <div className="text-xs text-slate-500">
-                      预计奖励 🪙 {rewardPreview.coins} · {task.isRepeatable ? "可重复" : "一次性"}
+                      预计奖励 🪙 {rewardPreview.coins} · {repeatable ? "可重复" : "一次性"}
                     </div>
                     <button
                       onClick={() => handleComplete(task.id)}
@@ -294,16 +307,19 @@ export default function TasksPage() {
           <div className="text-sm text-slate-500">还没有完成记录。</div>
         ) : (
           <div className="space-y-2">
-            {doneTasks.map((task) => (
-              <div key={task.id} className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
-                <div className="text-sm text-slate-200">{task.title}</div>
-                <div className="text-xs text-slate-500 mt-1">
-                  {task.completedAt
-                    ? new Date(task.completedAt).toLocaleString("zh-CN")
-                    : "已完成"}
+            {doneTasks.map((task) => {
+              const template = task.templateId ? taskConfig?.[task.templateId] : null;
+              return (
+                <div key={task.id} className="rounded-lg border border-slate-800 bg-slate-900/40 p-3">
+                  <div className="text-sm text-slate-200">{template?.name || task.title}</div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    {task.completedAt
+                      ? new Date(task.completedAt).toLocaleString("zh-CN")
+                      : "已完成"}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>

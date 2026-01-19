@@ -1,0 +1,9 @@
+{
+  "course_watch": {
+    "name": "看一节课程",
+    "category": "learning",
+    "difficulty": "medium",
+    "repeatable": true,
+    "subtasks": ["打开课程", "播放20分钟", "写一句笔记"]
+  }
+}

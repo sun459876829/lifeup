@@ -22,11 +22,14 @@ function formatDelta(value, suffix) {
   return `${sign}${value}${suffix || ""}`;
 }
 
-function resolveEntryTitle(entry, tasks) {
+function resolveEntryTitle(entry, tasks, taskConfig) {
   const payload = entry.payload || {};
   const entryType = entry.type || entry.kind;
   if (entryType === "task_complete") {
-    return payload.taskTitle || tasks.find((task) => task.id === payload.taskId)?.title || "未知任务";
+    const templateTitle = payload.templateId
+      ? taskConfig?.[payload.templateId]?.name
+      : tasks.find((task) => task.id === payload.taskId)?.title;
+    return templateTitle || payload.taskTitle || "未知任务";
   }
   if (entryType === "ticket_use") {
     return payload.ticketName || "券";
@@ -52,7 +55,7 @@ function resolveExpDelta(entry) {
 }
 
 export default function HistoryPage() {
-  const { hydrated, history, tasks, undoHistoryItem } = useWorld();
+  const { hydrated, history, tasks, undoHistoryItem, taskConfig } = useWorld();
   const [message, setMessage] = useState("");
   const entries = useMemo(() => {
     const list = Array.isArray(history) ? history : [];
@@ -119,7 +122,7 @@ export default function HistoryPage() {
           {entries.map((entry) => {
             const entryType = entry.type || entry.kind;
             const label = KIND_LABELS[entryType] || "未知操作";
-            const title = resolveEntryTitle(entry, tasks);
+            const title = resolveEntryTitle(entry, tasks, taskConfig);
             const coinsText = formatDelta(resolveCoinsDelta(entry), " 🪙");
             const expText = formatDelta(resolveExpDelta(entry), " EXP");
             const undoable =

@@ -1,0 +1,7 @@
+{
+  "tiny": { "exp": 5, "coins": 5 },
+  "small": { "exp": 10, "coins": 10 },
+  "medium": { "exp": 20, "coins": 20 },
+  "large": { "exp": 50, "coins": 40 },
+  "huge": { "exp": 150, "coins": 100 }
+}

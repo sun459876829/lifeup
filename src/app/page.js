@@ -7,6 +7,7 @@ import FocusTimer from "@/components/FocusTimer";
 import { useWorld } from "./worldState";
 import { COIN_TO_RMB, STAT_LIMITS } from "../game/config";
 import { DEFAULT_UI_SETTINGS, loadUiSettings, UI_SETTINGS_KEY } from "../lib/uiSettings";
+import { resolveDifficultyValue } from "../lib/loadTasks";
 
 const STAT_META = [
   { key: "life", label: "生命", emoji: "❤️", color: "from-rose-400 to-red-500", max: STAT_LIMITS.life },
@@ -35,6 +36,7 @@ export default function Page() {
     completedTasks,
     history,
     undoLastAction,
+    taskConfig,
   } = useWorld();
   const [message, setMessage] = useState("");
   const [uiSettings, setUiSettings] = useState(DEFAULT_UI_SETTINGS);
@@ -194,14 +196,18 @@ export default function Page() {
             </div>
           ) : (
             <div className="space-y-3">
-              {todoTasks.map((task) => (
-                <div key={task.id} className="rounded-xl border border-slate-800 bg-slate-950/80 p-3">
-                  <div className="text-sm text-slate-200">{task.title}</div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    {task.category} · {task.minutes} 分钟 · 难度 {task.difficulty}
+              {todoTasks.map((task) => {
+                const template = task.templateId ? taskConfig?.[task.templateId] : null;
+                const difficultyValue = resolveDifficultyValue(template?.difficulty || task.difficulty);
+                return (
+                  <div key={task.id} className="rounded-xl border border-slate-800 bg-slate-950/80 p-3">
+                    <div className="text-sm text-slate-200">{template?.name || task.title}</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      {template?.category || task.category} · 难度 {difficultyValue}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -212,14 +218,17 @@ export default function Page() {
             <div className="text-sm text-slate-500">今天还没有完成任务。</div>
           ) : (
             <div className="space-y-2">
-              {recentCompletions.map((entry) => (
-                <div key={entry.id} className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
-                  <div className="text-sm text-slate-200">{entry.title}</div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    {entry.completedAt ? new Date(entry.completedAt).toLocaleString("zh-CN") : "完成"}
+              {recentCompletions.map((entry) => {
+                const template = entry.templateId ? taskConfig?.[entry.templateId] : null;
+                return (
+                  <div key={entry.id} className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+                    <div className="text-sm text-slate-200">{template?.name || entry.title}</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      {entry.completedAt ? new Date(entry.completedAt).toLocaleString("zh-CN") : "完成"}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           <Link
