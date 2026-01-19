@@ -27,6 +27,7 @@ export type TaskTemplateInput = {
   title?: string;
   category?: string;
   difficulty?: string | number;
+  priority?: string;
   repeatable?: boolean;
   isRepeatable?: boolean;
   subtasks?: string[];
@@ -36,11 +37,14 @@ export type TaskTemplateInput = {
   effect?: Record<string, number>;
 };
 
+export type TaskPriorityKey = "urgent" | "soon" | "later" | "quick" | "long";
+
 export type TaskTemplate = {
   templateId: string;
   name: string;
   category: string;
   difficulty: TaskDifficultyKey;
+  priority?: TaskPriorityKey;
   repeatable: boolean;
   subtasks: string[];
   tags: string[];
@@ -52,6 +56,26 @@ export type TaskTemplate = {
     coins: number;
   };
 };
+
+const PRIORITY_ALIASES: Record<string, TaskPriorityKey> = {
+  urgent: "urgent",
+  soon: "soon",
+  later: "later",
+  quick: "quick",
+  long: "long",
+  "优先紧急": "urgent",
+  "紧急": "urgent",
+  "尽快做": "soon",
+  "稍后做": "later",
+  "快速任务": "quick",
+  "长任务": "long",
+};
+
+export function normalizeTaskPriority(value?: string): TaskPriorityKey | undefined {
+  if (!value) return undefined;
+  const key = value.trim().toLowerCase();
+  return PRIORITY_ALIASES[key];
+}
 
 function normalizeDifficultyKey(value?: string | number): TaskDifficultyKey {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -97,6 +121,7 @@ export function normalizeTask(templateId: string, task: TaskTemplateInput): Task
     name: task?.name || task?.title || templateId,
     category: task?.category || "other",
     difficulty: difficultyKey,
+    priority: normalizeTaskPriority(task?.priority),
     repeatable: Boolean(task?.repeatable ?? task?.isRepeatable ?? true),
     subtasks: Array.isArray(task?.subtasks) ? task.subtasks : [],
     tags: Array.isArray(task?.tags) ? task.tags : [],
