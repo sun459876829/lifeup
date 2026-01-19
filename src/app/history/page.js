@@ -6,14 +6,10 @@ import { useWorld } from "../worldState";
 
 const KIND_LABELS = {
   task_complete: "完成任务",
-  task_uncomplete: "撤销完成",
-  reward_spend: "支出奖励",
-  ticket_use: "使用券",
-  ticket_unuse: "撤销券",
-  coins_adjust: "金币调整",
-  exp_adjust: "经验调整",
-  coins_change: "金币变动",
-  history_undo: "撤销记录",
+  task_add: "新增任务",
+  task_edit: "编辑任务",
+  task_revert: "撤销操作",
+  reward_gain: "获得奖励",
 };
 
 function formatDelta(value, suffix) {
@@ -31,31 +27,33 @@ function resolveEntryTitle(entry, tasks, taskConfig) {
       : tasks.find((task) => task.id === payload.taskId)?.title;
     return templateTitle || payload.taskTitle || "未知任务";
   }
-  if (entryType === "ticket_use") {
-    return payload.ticketName || "券";
+  if (entryType === "task_add" || entryType === "task_edit") {
+    return payload.taskTitle || "未知任务";
   }
-  if (entryType === "history_undo") {
+  if (entryType === "reward_gain") {
+    return payload.title || payload.reason || "奖励";
+  }
+  if (entryType === "task_revert") {
     const label = KIND_LABELS[payload.targetType] || "操作";
-    return payload.targetTitle ? `撤销：${payload.targetTitle}` : `撤销：${label}`;
+    return payload.taskTitle
+      ? `撤销：${payload.taskTitle}`
+      : payload.targetTitle
+        ? `撤销：${payload.targetTitle}`
+        : `撤销：${label}`;
   }
   return payload.title || "";
 }
 
 function resolveCoinsDelta(entry) {
-  if (typeof entry.payload?.coinsDelta === "number") return entry.payload.coinsDelta;
-  if ((entry.type || entry.kind) === "coins_change" && typeof entry.payload?.delta === "number") {
-    return entry.payload.delta;
+  if ((entry.type || entry.kind) === "reward_gain") {
+    const amount = entry.payload?.amount ?? entry.payload?.coins ?? entry.payload?.delta;
+    if (typeof amount === "number") return amount;
   }
   return null;
 }
 
-function resolveExpDelta(entry) {
-  if (typeof entry.payload?.expDelta === "number") return entry.payload.expDelta;
-  return null;
-}
-
 export default function HistoryPage() {
-  const { hydrated, history, tasks, undoHistoryItem, taskConfig } = useWorld();
+  const { hydrated, history, tasks, undoHistory, taskConfig } = useWorld();
   const [message, setMessage] = useState("");
   const entries = useMemo(() => {
     const list = Array.isArray(history) ? history : [];
@@ -65,7 +63,7 @@ export default function HistoryPage() {
   }, [history]);
 
   const handleUndo = (id) => {
-    const result = undoHistoryItem(id);
+    const result = undoHistory(id);
     if (result?.ok) {
       setMessage("已撤销所选记录");
     } else {
@@ -124,10 +122,7 @@ export default function HistoryPage() {
             const label = KIND_LABELS[entryType] || "未知操作";
             const title = resolveEntryTitle(entry, tasks, taskConfig);
             const coinsText = formatDelta(resolveCoinsDelta(entry), " 🪙");
-            const expText = formatDelta(resolveExpDelta(entry), " EXP");
-            const undoable =
-              !entry.undone &&
-              (typeof entry.undoable === "boolean" ? entry.undoable : Boolean(entry.undo));
+            const undoable = !entry.undone;
             return (
               <div
                 key={entry.id}
@@ -146,17 +141,19 @@ export default function HistoryPage() {
                 <div className="text-sm text-slate-300">{title}</div>
                 <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
                   {coinsText && <span>金币 {coinsText}</span>}
-                  {expText && <span>经验 {expText}</span>}
                   {entry.undone && <span className="text-rose-300">已撤销</span>}
-                  {undoable && (
-                    <button
-                      type="button"
-                      onClick={() => handleUndo(entry.id)}
-                      className="rounded-full border border-rose-400/50 px-2 py-0.5 text-[11px] text-rose-200 hover:border-rose-300 hover:text-rose-100 transition"
-                    >
-                      撤销
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleUndo(entry.id)}
+                    disabled={!undoable}
+                    className={`rounded-full border px-2 py-0.5 text-[11px] transition ${
+                      undoable
+                        ? "border-rose-400/50 text-rose-200 hover:border-rose-300 hover:text-rose-100"
+                        : "border-slate-700 text-slate-500 cursor-not-allowed"
+                    }`}
+                  >
+                    撤销
+                  </button>
                 </div>
               </div>
             );

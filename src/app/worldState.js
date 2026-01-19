@@ -131,6 +131,25 @@ function normalizeTreasureMap(map) {
   };
 }
 
+function buildHistoryEntry(record) {
+  if (!record) return null;
+  return {
+    id: record.id || newId(),
+    type: record.type,
+    payload: record.payload || {},
+    timestamp: record.timestamp || Date.now(),
+  };
+}
+
+function removeCompletedEntry(list, taskId, completedAt) {
+  if (!Array.isArray(list)) return [];
+  const index = list.findIndex(
+    (entry) => entry.taskId === taskId && (completedAt ? entry.completedAt === completedAt : true)
+  );
+  if (index < 0) return list;
+  return [...list.slice(0, index), ...list.slice(index + 1)];
+}
+
 function migrateLegacyState(raw) {
   const base = createDefaultState();
   if (!raw || typeof raw !== "object") return base;
@@ -630,19 +649,13 @@ export function WorldProvider({ children }) {
     if (!state || !amount) return;
     setState((prev) => {
       const nextHistory = pushHistoryEntry(
-        {
-          type: "coins_change",
+        buildHistoryEntry({
+          type: "reward_gain",
           payload: {
-            delta: amount,
+            amount,
             reason,
           },
-          undo: {
-            type: "reverse_coins_change",
-            payload: {
-              delta: amount,
-            },
-          },
-        },
+        }),
         prev.history
       );
       return {
@@ -805,10 +818,24 @@ export function WorldProvider({ children }) {
       subtasks: template?.subtasks || taskInput.subtasks || [],
     };
 
-    setState((prev) => ({
-      ...prev,
-      tasks: [created, ...(prev.tasks || [])],
-    }));
+    setState((prev) => {
+      const nextHistory = pushHistoryEntry(
+        buildHistoryEntry({
+          type: "task_add",
+          payload: {
+            taskId: created.id,
+            taskTitle: created.title,
+            category: created.category,
+          },
+        }),
+        prev.history
+      );
+      return {
+        ...prev,
+        tasks: [created, ...(prev.tasks || [])],
+        history: nextHistory,
+      };
+    });
 
     return created;
   }, [state]);
@@ -935,7 +962,7 @@ export function WorldProvider({ children }) {
     };
 
     const nextHistory = pushHistoryEntry(
-      {
+      buildHistoryEntry({
         type: "task_complete",
         payload: {
           taskId: task.id,
@@ -943,30 +970,11 @@ export function WorldProvider({ children }) {
           taskTitle: task.title,
           previousStatus,
           newStatus,
-          coinsDelta: rewardCoins,
-          expDelta: rewardExp,
           completedAt,
           previousCompletedAt,
           previousLastCompletedAt,
-          statsDelta,
-          previousBurst: baseState.burst,
-          nextBurst: updatedBurst,
         },
-        undo: {
-          type: "revert_task_complete",
-          payload: {
-            taskId: task.id,
-            prevStatus: previousStatus,
-            prevCompletedAt: previousCompletedAt,
-            prevLastCompletedAt: previousLastCompletedAt,
-            coinsDelta: rewardCoins,
-            expDelta: rewardExp,
-            completedAt,
-            statsDelta,
-            previousBurst: baseState.burst,
-          },
-        },
-      },
+      }),
       baseState.history
     );
 
@@ -1151,6 +1159,121 @@ export function WorldProvider({ children }) {
     }));
   }, [state]);
 
+  const addHistory = useCallback((record) => {
+    if (!state) return;
+    const entry = buildHistoryEntry(record);
+    if (!entry?.type) return;
+    setState((prev) => ({
+      ...prev,
+      history: pushHistoryEntry(entry, prev.history),
+    }));
+  }, [state]);
+
+  const undoHistory = useCallback((recordId) => {
+    if (!state) return { ok: false, error: "世界尚未加载" };
+    let result = { ok: false, error: "无法撤销该记录" };
+
+    setState((prev) => {
+      if (!prev) return prev;
+      const historyList = Array.isArray(prev.history) ? prev.history : [];
+      const targetIndex = historyList.findIndex((item) => item.id === recordId);
+      if (targetIndex < 0) {
+        result = { ok: false, error: "找不到历史记录" };
+        return prev;
+      }
+      const target = historyList[targetIndex];
+      if (target?.undone) {
+        result = { ok: false, error: "该记录已撤销" };
+        return prev;
+      }
+
+      const entryType = target.type;
+      let nextState = prev;
+
+      if (entryType === "task_complete") {
+        const taskId = target.payload?.taskId;
+        if (!taskId) {
+          result = { ok: false, error: "缺少任务信息" };
+          return prev;
+        }
+        const existing = (prev.tasks || []).find((task) => task.id === taskId);
+        if (!existing) {
+          result = { ok: false, error: "找不到任务" };
+          return prev;
+        }
+        const updatedTasks = (prev.tasks || []).map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                status: target.payload?.previousStatus ?? "todo",
+                completedAt: target.payload?.previousCompletedAt,
+                lastCompletedAt: target.payload?.previousLastCompletedAt,
+              }
+            : task
+        );
+        nextState = {
+          ...prev,
+          tasks: updatedTasks,
+          completedTasks: removeCompletedEntry(
+            prev.completedTasks || [],
+            taskId,
+            target.payload?.completedAt
+          ),
+        };
+      } else if (entryType === "task_add") {
+        const taskId = target.payload?.taskId;
+        if (!taskId) {
+          result = { ok: false, error: "缺少任务信息" };
+          return prev;
+        }
+        nextState = {
+          ...prev,
+          tasks: (prev.tasks || []).filter((task) => task.id !== taskId),
+        };
+      } else if (entryType === "reward_gain") {
+        const amount = Number(target.payload?.amount ?? target.payload?.coins ?? target.payload?.delta);
+        if (!amount) {
+          result = { ok: false, error: "缺少奖励信息" };
+          return prev;
+        }
+        nextState = {
+          ...prev,
+          currency: {
+            ...prev.currency,
+            coins: Math.max(0, (prev.currency?.coins || 0) - amount),
+          },
+        };
+      } else {
+        result = { ok: false, error: "该记录无法撤销" };
+        return prev;
+      }
+
+      const updatedHistory = historyList.map((item, index) =>
+        index === targetIndex ? { ...item, undone: true, undoneAt: Date.now() } : item
+      );
+      const nextHistory = pushHistoryEntry(
+        buildHistoryEntry({
+          type: "task_revert",
+          payload: {
+            targetId: target.id,
+            targetType: target.type,
+            taskId: target.payload?.taskId,
+            taskTitle: target.payload?.taskTitle,
+          },
+        }),
+        updatedHistory
+      );
+
+      result = { ok: true };
+      return {
+        ...nextState,
+        history: nextHistory,
+      };
+    });
+
+    return result;
+  }, [state]);
+
   const undoHistoryItem = useCallback((id) => {
     if (!state) return { ok: false, error: "世界尚未加载" };
     const result = undoHistoryItemAction({ state, history: state.history, id });
@@ -1252,6 +1375,8 @@ export function WorldProvider({ children }) {
     addClaim,
     useClaim,
     pushHistory,
+    addHistory,
+    undoHistory,
     undoHistoryItem,
     undoLastAction,
     unlockAchievement,
@@ -1275,6 +1400,8 @@ export function WorldProvider({ children }) {
     addClaim,
     useClaim,
     pushHistory,
+    addHistory,
+    undoHistory,
     undoHistoryItem,
     undoLastAction,
     unlockAchievement,
