@@ -12,6 +12,7 @@ import {
 import { computeReward } from "@/game/config/rewards";
 import { RESOURCES } from "@/game/config/resources";
 import { TASK_TEMPLATES } from "@/game/config/tasksConfig";
+import { CRAFTING_RECIPES } from "@/game/config/craftingConfig";
 import { loadHistory, pushHistory as pushHistoryEntry } from "@/game/history";
 
 export type TaskDifficulty = "tiny" | "small" | "medium" | "large" | "huge";
@@ -55,10 +56,18 @@ export type HistoryEntry = {
     | "resource_change"
     | "craft"
     | "world_advance"
+    | "daily_drop_claimed"
+    | "item_use"
     | "undo"
     | string;
   payload: Record<string, unknown>;
   timestamp: number;
+};
+
+export type DailyDrop = {
+  day: number;
+  drops: Array<{ type: "coins" | "resource" | "item"; id?: string; amount: number }>;
+  claimed: boolean;
 };
 
 export type GameState = {
@@ -66,6 +75,7 @@ export type GameState = {
   exp: number;
   resources: Record<string, number>;
   inventory: Record<string, number>;
+  dailyDrop: DailyDrop | null;
   worldTime: {
     currentDay: number;
     lastAdvanceAt: number | null;
@@ -99,6 +109,7 @@ function createDefaultState(): GameState {
     exp: 0,
     resources: buildDefaultResources(),
     inventory: {},
+    dailyDrop: null,
     worldTime: {
       currentDay: 1,
       lastAdvanceAt: null,
@@ -125,6 +136,7 @@ function normalizeState(raw: Partial<GameState> | null): GameState {
     inventory: {
       ...(raw.inventory || {}),
     },
+    dailyDrop: raw.dailyDrop ?? base.dailyDrop,
     worldTime: {
       currentDay: raw.worldTime?.currentDay ?? base.worldTime.currentDay,
       lastAdvanceAt: raw.worldTime?.lastAdvanceAt ?? base.worldTime.lastAdvanceAt,
@@ -187,6 +199,43 @@ function mergeResourceChanges(resources: Record<string, number>, changes: Record
   return next;
 }
 
+function mergeInventoryChanges(inventory: Record<string, number>, changes: Record<string, number>) {
+  const next = { ...inventory };
+  Object.entries(changes).forEach(([id, amount]) => {
+    const delta = Number(amount) || 0;
+    next[id] = Math.max(0, (next[id] || 0) + delta);
+  });
+  return next;
+}
+
+const COMMON_DROP_RESOURCES = ["wood", "fiber", "stone", "scrap"];
+
+function randomInt(min: number, max: number) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function generateDailyDrop(day: number): DailyDrop {
+  const dropCount = randomInt(1, 3);
+  const drops: DailyDrop["drops"] = [];
+  for (let i = 0; i < dropCount; i += 1) {
+    const roll = Math.random();
+    if (roll < 0.05) {
+      const itemId = Math.random() < 0.6 ? "gameTicket" : "snackVoucher10";
+      drops.push({ type: "item", id: itemId, amount: 1 });
+    } else if (roll < 0.5) {
+      drops.push({ type: "coins", amount: randomInt(10, 50) });
+    } else {
+      const resourceId = COMMON_DROP_RESOURCES[randomInt(0, COMMON_DROP_RESOURCES.length - 1)];
+      drops.push({ type: "resource", id: resourceId, amount: randomInt(1, 4) });
+    }
+  }
+  return {
+    day,
+    drops,
+    claimed: false,
+  };
+}
+
 const GameStateContext = createContext<
   (GameState & {
     hydrated: boolean;
@@ -194,6 +243,10 @@ const GameStateContext = createContext<
     addExp: (amount: number, reason?: string) => void;
     addResources: (changes: Record<string, number>, reason?: string) => void;
     consumeResources: (changes: Record<string, number>, reason?: string) => boolean;
+    canCraft: (recipeId: string) => boolean;
+    craft: (recipeId: string) => boolean;
+    useItem: (itemId: string) => boolean;
+    claimDailyDrop: () => boolean;
     registerTaskTemplates: (templates: Record<string, TaskTemplate>) => void;
     spawnTaskInstance: (templateId: string) => TaskInstance | null;
     completeTaskInstance: (
@@ -306,6 +359,109 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
     },
     []
   );
+
+  const canCraft = useCallback((recipeId: string) => {
+    const current = stateRef.current;
+    const recipe = recipeId ? CRAFTING_RECIPES[recipeId] : null;
+    if (!current || !recipe) return false;
+    const hasResources = Object.entries(recipe.costs || {}).every(([id, amount]) => {
+      const need = Number(amount) || 0;
+      return (current.resources[id] || 0) >= need;
+    });
+    const coinCost = Number(recipe.coinsCost) || 0;
+    const hasCoins = current.coins >= coinCost;
+    return hasResources && hasCoins;
+  }, []);
+
+  const craft = useCallback((recipeId: string) => {
+    const current = stateRef.current;
+    const recipe = recipeId ? CRAFTING_RECIPES[recipeId] : null;
+    if (!current || !recipe) return false;
+    const canCraftNow = Object.entries(recipe.costs || {}).every(([id, amount]) => {
+      const need = Number(amount) || 0;
+      return (current.resources[id] || 0) >= need;
+    });
+    const coinCost = Number(recipe.coinsCost) || 0;
+    if (!canCraftNow || current.coins < coinCost) return false;
+
+    setState((prev) => {
+      const entry = buildHistoryEntry("craft", {
+        recipeId: recipe.id,
+        costs: recipe.costs,
+        yields: recipe.yields,
+        coinsCost: coinCost,
+      });
+      const negativeCosts = Object.fromEntries(
+        Object.entries(recipe.costs || {}).map(([id, amount]) => [id, -Math.abs(Number(amount) || 0)])
+      );
+      return {
+        ...prev,
+        coins: Math.max(0, prev.coins - coinCost),
+        resources: mergeResourceChanges(prev.resources, negativeCosts),
+        inventory: mergeInventoryChanges(prev.inventory, recipe.yields || {}),
+        history: pushHistoryEntry(entry, prev.history),
+      };
+    });
+    return true;
+  }, []);
+
+  const useItem = useCallback((itemId: string) => {
+    const current = stateRef.current;
+    if (!current || !itemId) return false;
+    const currentCount = current.inventory[itemId] || 0;
+    if (currentCount <= 0) return false;
+    setState((prev) => {
+      const entry = buildHistoryEntry("item_use", {
+        itemId,
+        delta: -1,
+      });
+      return {
+        ...prev,
+        inventory: mergeInventoryChanges(prev.inventory, { [itemId]: -1 }),
+        history: pushHistoryEntry(entry, prev.history),
+      };
+    });
+    return true;
+  }, []);
+
+  const claimDailyDrop = useCallback(() => {
+    const current = stateRef.current;
+    if (!current?.dailyDrop || current.dailyDrop.claimed) return false;
+    const { drops } = current.dailyDrop;
+    const coinGain = drops
+      .filter((drop) => drop.type === "coins")
+      .reduce((sum, drop) => sum + (Number(drop.amount) || 0), 0);
+    const resourceChanges = drops
+      .filter((drop) => drop.type === "resource" && drop.id)
+      .reduce<Record<string, number>>((acc, drop) => {
+        const id = drop.id as string;
+        acc[id] = (acc[id] || 0) + (Number(drop.amount) || 0);
+        return acc;
+      }, {});
+    const itemChanges = drops
+      .filter((drop) => drop.type === "item" && drop.id)
+      .reduce<Record<string, number>>((acc, drop) => {
+        const id = drop.id as string;
+        acc[id] = (acc[id] || 0) + (Number(drop.amount) || 0);
+        return acc;
+      }, {});
+
+    setState((prev) => {
+      const entry = buildHistoryEntry("daily_drop_claimed", {
+        day: prev.dailyDrop?.day,
+        drops,
+      });
+      return {
+        ...prev,
+        coins: prev.coins + coinGain,
+        resources: mergeResourceChanges(prev.resources, resourceChanges),
+        inventory: mergeInventoryChanges(prev.inventory, itemChanges),
+        dailyDrop: prev.dailyDrop ? { ...prev.dailyDrop, claimed: true } : prev.dailyDrop,
+        history: pushHistoryEntry(entry, prev.history),
+      };
+    });
+    return true;
+  }, []);
 
   const registerTaskTemplates = useCallback((templates: Record<string, TaskTemplate>) => {
     if (!templates || Object.keys(templates).length === 0) return;
@@ -432,16 +588,18 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
 
   const advanceWorldDay = useCallback(() => {
     setState((prev) => {
+      const nextDay = prev.worldTime.currentDay + 1;
       const entry = buildHistoryEntry("world_advance", {
         fromDay: prev.worldTime.currentDay,
-        toDay: prev.worldTime.currentDay + 1,
+        toDay: nextDay,
       });
       return {
         ...prev,
         worldTime: {
-          currentDay: prev.worldTime.currentDay + 1,
+          currentDay: nextDay,
           lastAdvanceAt: Date.now(),
         },
+        dailyDrop: generateDailyDrop(nextDay),
         history: pushHistoryEntry(entry, prev.history),
       };
     });
@@ -455,6 +613,10 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       addExp,
       addResources,
       consumeResources,
+      canCraft,
+      craft,
+      useItem,
+      claimDailyDrop,
       registerTaskTemplates,
       spawnTaskInstance,
       completeTaskInstance,
@@ -468,6 +630,10 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       addExp,
       addResources,
       consumeResources,
+      canCraft,
+      craft,
+      useItem,
+      claimDailyDrop,
       registerTaskTemplates,
       spawnTaskInstance,
       completeTaskInstance,

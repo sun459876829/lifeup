@@ -5,9 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 import WorldClock from "@/components/WorldClock";
 import FocusTimer from "@/components/FocusTimer";
 import { useWorld } from "./worldState";
+import { useGameState } from "@/state/GameStateContext";
 import { COIN_TO_RMB, STAT_LIMITS } from "../game/config";
 import { DEFAULT_UI_SETTINGS, loadUiSettings, UI_SETTINGS_KEY } from "../lib/uiSettings";
 import { resolveDifficultyValue } from "../lib/loadTasks";
+import { RESOURCES } from "@/game/config/resources";
+import { ITEMS } from "@/game/config/items";
 
 const STAT_META = [
   { key: "life", label: "生命", emoji: "❤️", color: "from-rose-400 to-red-500", max: STAT_LIMITS.life },
@@ -38,6 +41,7 @@ export default function Page() {
     undoLastAction,
     taskConfig,
   } = useWorld();
+  const { hydrated: survivalHydrated, dailyDrop, claimDailyDrop } = useGameState();
   const [message, setMessage] = useState("");
   const [uiSettings, setUiSettings] = useState(DEFAULT_UI_SETTINGS);
   const coinRmb = (currency.coins * COIN_TO_RMB).toFixed(1);
@@ -79,6 +83,16 @@ export default function Page() {
       setMessage("已撤销上一条操作");
     } else {
       setMessage(result?.error || "没有可撤销的记录");
+    }
+    setTimeout(() => setMessage(""), 2000);
+  }
+
+  function handleClaimDailyDrop() {
+    const ok = claimDailyDrop();
+    if (ok) {
+      setMessage("🌊 今日漂流物已打捞完毕！");
+    } else {
+      setMessage("今日漂流物已打捞完毕或尚未刷新。");
     }
     setTimeout(() => setMessage(""), 2000);
   }
@@ -177,6 +191,60 @@ export default function Page() {
             )}
           </div>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4 shadow-lg shadow-slate-950/30">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium text-slate-100">🌊 今日漂流物</div>
+            <div className="text-xs text-slate-500 mt-1">每天推进世界时间后，都会刷新漂流物奖励。</div>
+          </div>
+          <button
+            onClick={handleClaimDailyDrop}
+            disabled={!survivalHydrated || !dailyDrop || dailyDrop.claimed}
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+              survivalHydrated && dailyDrop && !dailyDrop.claimed
+                ? "bg-emerald-500/80 hover:bg-emerald-500 text-white"
+                : "bg-slate-800 text-slate-500 cursor-not-allowed"
+            }`}
+          >
+            {!survivalHydrated
+              ? "加载中"
+              : dailyDrop
+                ? dailyDrop.claimed
+                  ? "今日已打捞"
+                  : "打捞漂流物"
+                : "尚未刷新"}
+          </button>
+        </div>
+        {survivalHydrated && dailyDrop ? (
+          <div className="space-y-2 text-xs text-slate-400">
+            <div>第 {dailyDrop.day} 天掉落：</div>
+            <div className="flex flex-wrap gap-2">
+              {dailyDrop.drops.map((drop, index) => {
+                const key = `${drop.type}-${drop.id || "coins"}-${index}`;
+                const label =
+                  drop.type === "coins"
+                    ? `🪙 金币 x${drop.amount}`
+                    : drop.type === "resource"
+                      ? `${RESOURCES[drop.id]?.name || drop.id} x${drop.amount}`
+                      : `${ITEMS[drop.id]?.name || drop.id} x${drop.amount}`;
+                return (
+                  <span
+                    key={key}
+                    className="rounded-full border border-slate-700 bg-slate-900/70 px-2 py-0.5 text-slate-300"
+                  >
+                    {label}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="text-xs text-slate-500">
+            {survivalHydrated ? "等待下一次世界推进。" : "正在同步漂流物…"}
+          </div>
+        )}
       </section>
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
