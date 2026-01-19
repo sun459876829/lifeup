@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useGameState } from "@/state/GameStateContext";
 import { computeReward, estimateRewardRange } from "@/game/config/rewards";
 import { RESOURCES } from "@/game/config/resources";
+import { getBatchSuggestion } from "@/game/engine/batchEngine";
 
 const CATEGORY_LABELS = {
   learning: "学习",
@@ -45,6 +46,11 @@ function formatRange(minValue, maxValue) {
   return `${minValue}–${maxValue}`;
 }
 
+function formatMinutes(value) {
+  if (!value) return "-";
+  return `${value} 分钟`;
+}
+
 function resolveCategoryLabel(category) {
   return CATEGORY_LABELS[category] || category || "其他";
 }
@@ -67,8 +73,17 @@ function buildRewardPreview(template) {
 }
 
 export default function TasksPage() {
-  const { hydrated, tasks, spawnTaskInstance, completeTaskInstance } = useGameState();
+  const gameState = useGameState();
+  const { hydrated, tasks, spawnTaskInstance, completeTaskInstance, pushHistory, taskStreaks } =
+    gameState;
   const [message, setMessage] = useState("");
+  const [batchSuggestion, setBatchSuggestion] = useState(null);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const templates = useMemo(() => Object.values(tasks.templates || {}), [tasks.templates]);
 
@@ -95,8 +110,8 @@ export default function TasksPage() {
     [tasks.active]
   );
 
-  function handleAccept(template) {
-    const instance = spawnTaskInstance(template.id);
+  function handleAccept(template, options) {
+    const instance = spawnTaskInstance(template.id, options);
     if (!instance) {
       setMessage("该任务进行中或已达领取上限。");
       setTimeout(() => setMessage(""), 2000);
@@ -122,6 +137,40 @@ export default function TasksPage() {
       `✨ 完成「${template.title}」：+${reward?.coins || 0} 金币，+${reward?.exp || 0} EXP${dropText}`
     );
     setTimeout(() => setMessage(""), 3000);
+
+    const suggestion = getBatchSuggestion(template.id, tasks.templates, gameState);
+    if (suggestion) {
+      setBatchSuggestion(suggestion);
+    }
+  }
+
+  function handleBatchAccept() {
+    if (!batchSuggestion) return;
+    const spawned = batchSuggestion.templates
+      .map((template) =>
+        spawnTaskInstance(template.id, { bonusMultiplier: batchSuggestion.bonusMultiplier })
+      )
+      .filter(Boolean);
+    const templateIds = spawned.map((item) => item.templateId);
+    if (templateIds.length > 0) {
+      pushHistory({
+        type: "batch_accept",
+        payload: {
+          templateIds,
+          bonusMultiplier: batchSuggestion.bonusMultiplier,
+        },
+      });
+      setMessage("⚡ 已领取连做任务，完成可获得额外奖励！");
+      setTimeout(() => setMessage(""), 2500);
+    } else {
+      setMessage("连做任务已存在或无法领取。");
+      setTimeout(() => setMessage(""), 2000);
+    }
+    setBatchSuggestion(null);
+  }
+
+  function handleBatchDismiss() {
+    setBatchSuggestion(null);
   }
 
   function hasActiveInstance(templateId) {
@@ -167,6 +216,39 @@ export default function TasksPage() {
         </div>
       )}
 
+      {batchSuggestion && (
+        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-3">
+          <div className="text-sm font-medium text-emerald-100">🔥 连做奖励提示</div>
+          <div className="text-xs text-emerald-200/80">{batchSuggestion.message}</div>
+          <div className="flex flex-wrap gap-2 text-xs text-emerald-100">
+            {batchSuggestion.templates.map((template) => (
+              <span
+                key={template.id}
+                className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5"
+              >
+                {template.title}
+              </span>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleBatchAccept}
+              className="rounded-lg bg-emerald-500/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+            >
+              一键领取这些任务
+            </button>
+            <button
+              type="button"
+              onClick={handleBatchDismiss}
+              className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs text-slate-300 hover:text-slate-100"
+            >
+              下次再说
+            </button>
+          </div>
+        </div>
+      )}
+
       <section className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-4">
         <h2 className="text-sm font-medium text-slate-100">🧾 可领取任务</h2>
         <div className="space-y-6">
@@ -186,6 +268,7 @@ export default function TasksPage() {
                   const canSpawn = canSpawnTemplate(template);
                   const active = hasActiveInstance(template.id);
                   const resourceIds = reward.resourceDrops.map((drop) => drop.id);
+                  const streak = taskStreaks?.[template.id];
                   return (
                     <div
                       key={`${categoryKey}-${template.id}`}
@@ -208,6 +291,9 @@ export default function TasksPage() {
                           </span>
                         )}
                       </div>
+                      {streak?.count >= 3 && (
+                        <div className="text-xs text-amber-300">🔥 习惯叠加中（连续 {streak.count} 天）</div>
+                      )}
                       {template.description && (
                         <p className="text-xs text-slate-400">{template.description}</p>
                       )}
@@ -261,6 +347,15 @@ export default function TasksPage() {
               if (!template) return null;
               const { range, reward } = buildRewardPreview(template);
               const resourceIds = reward.resourceDrops.map((drop) => drop.id);
+              const elapsedSeconds = task.startedAt ? Math.max(0, Math.floor((now - task.startedAt) / 1000)) : 0;
+              const estimatedSeconds = Math.max(1, template.estimatedMinutes * 60);
+              const progress = Math.min(elapsedSeconds / estimatedSeconds, 1);
+              const ringSize = 80;
+              const ringStroke = 6;
+              const radius = (ringSize - ringStroke) / 2;
+              const circumference = 2 * Math.PI * radius;
+              const dashOffset = circumference * (1 - progress);
+              const streak = taskStreaks?.[template.id];
               return (
                 <div
                   key={task.instanceId}
@@ -287,9 +382,44 @@ export default function TasksPage() {
                       约 {formatRange(range.minCoins, range.maxCoins)} 金币
                     </span>
                   </div>
+                  {streak?.count >= 3 && (
+                    <div className="mt-2 text-xs text-amber-300">🔥 习惯叠加中（连续 {streak.count} 天）</div>
+                  )}
                   {template.description && (
                     <div className="mt-2 text-xs text-slate-400">{template.description}</div>
                   )}
+                  <div className="mt-3 flex flex-wrap items-center gap-4">
+                    <div className="relative flex items-center justify-center">
+                      <svg width={ringSize} height={ringSize} className="text-slate-700">
+                        <circle
+                          cx={ringSize / 2}
+                          cy={ringSize / 2}
+                          r={radius}
+                          stroke="rgba(148,163,184,0.2)"
+                          strokeWidth={ringStroke}
+                          fill="none"
+                        />
+                        <circle
+                          cx={ringSize / 2}
+                          cy={ringSize / 2}
+                          r={radius}
+                          stroke="rgba(99,102,241,0.9)"
+                          strokeWidth={ringStroke}
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeDasharray={circumference}
+                          strokeDashoffset={dashOffset}
+                        />
+                      </svg>
+                      <div className="absolute text-[11px] text-slate-200">
+                        {Math.min(100, Math.round(progress * 100))}%
+                      </div>
+                    </div>
+                    <div className="text-xs text-slate-400 space-y-1">
+                      <div>预计时间：{formatMinutes(template.estimatedMinutes)}</div>
+                      <div>已用时间：{formatMinutes(Math.round(elapsedSeconds / 60))}</div>
+                    </div>
+                  </div>
                   {resourceIds.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-300">
                       {resourceIds.map((id) => (
@@ -334,6 +464,9 @@ export default function TasksPage() {
                   <div className="text-sm text-slate-200">{template?.title || task.templateId}</div>
                   <div className="text-xs text-slate-500 mt-1">
                     {task.finishedAt ? new Date(task.finishedAt).toLocaleString("zh-CN") : "已完成"}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1">
+                    实际用时：{formatMinutes(task.actualMinutes)}
                   </div>
                 </div>
               );
