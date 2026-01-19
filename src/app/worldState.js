@@ -6,6 +6,12 @@ import { ACHIEVEMENTS_CONFIG } from "./gameConfig/achievementsConfig";
 import { getSanityGain, resolveTaskKind, STAT_LIMITS } from "../game/config";
 import { computeRewards, loadAllTasks, resolveDifficultyValue } from "../lib/loadTasks";
 import {
+  getStreakRewardMultiplier,
+  normalizeTaskStreak,
+  resetMissedTaskStreak,
+  updateTaskStreak,
+} from "../engine/habitEngine";
+import {
   loadHistory,
   pushHistory as pushHistoryEntry,
   undoLastAction as undoHistoryLastAction,
@@ -98,6 +104,14 @@ function normalizeTaskMeta(task) {
   };
 }
 
+function normalizeTaskStreakState(task) {
+  const streak = normalizeTaskStreak(task?.streak);
+  return {
+    streak,
+    streakActive: task?.streakActive ?? streak.count >= 3,
+  };
+}
+
 function createDefaultState() {
   return {
     stats: { ...DEFAULT_STATS },
@@ -167,6 +181,7 @@ function migrateLegacyState(raw) {
       const isRepeatable = task.type === "repeat" || task.isRepeatable;
       const status = task.status || "todo";
       const meta = normalizeTaskMeta(task);
+      const streakState = normalizeTaskStreakState(task);
       return {
         id: task.id || newId(),
         title: task.title || "未命名任务",
@@ -180,6 +195,8 @@ function migrateLegacyState(raw) {
         coinsReward: task.rewardCoins || task.coinsReward || 0,
         effect: task.effect || undefined,
         lastCompletedAt: task.lastCompletedAt || undefined,
+        streak: streakState.streak,
+        streakActive: streakState.streakActive,
         minutes: meta.minutes,
         difficulty: meta.difficulty,
         difficultyValue: meta.difficultyValue,
@@ -252,6 +269,7 @@ function loadState() {
           ? parsed.tasks.map((task) => ({
               ...task,
               ...normalizeTaskMeta(task),
+              ...normalizeTaskStreakState(task),
             }))
           : [],
         completedTasks: Array.isArray(parsed.completedTasks) ? parsed.completedTasks : [],
@@ -609,6 +627,9 @@ export function WorldProvider({ children }) {
       const nextState = {
         ...prev,
         stats: nextStats,
+        tasks: dayChanged
+          ? (prev.tasks || []).map((task) => resetMissedTaskStreak(task, prev.world?.day))
+          : prev.tasks,
         world: {
           ...prev.world,
           day: dayIndex,
@@ -812,6 +833,7 @@ export function WorldProvider({ children }) {
     const baseReward = computeRewards(baseDifficulty);
     const sanityBonus = getSanityGain(meta.difficultyValue);
     const instanceId = newId();
+    const streakState = normalizeTaskStreakState(taskInput);
 
     const created = {
       id: instanceId,
@@ -838,6 +860,8 @@ export function WorldProvider({ children }) {
       difficulty: meta.difficulty,
       difficultyValue: meta.difficultyValue,
       kind: meta.kind,
+      streak: streakState.streak,
+      streakActive: streakState.streakActive,
       subtasks: template?.subtasks || taskInput.subtasks || [],
     };
 
@@ -908,6 +932,8 @@ export function WorldProvider({ children }) {
 
     const rewardModifier = calculateRewardModifier(baseState.world.randomEvent, task.category);
     const meta = normalizeTaskMeta(task);
+    const streakUpdate = updateTaskStreak(task, baseState.world.day);
+    const streakMultiplier = getStreakRewardMultiplier(streakUpdate.streakActive);
     const burstKind = meta.kind;
     const nextComboCount =
       baseState.burst.lastKind && baseState.burst.lastKind === burstKind
@@ -917,12 +943,16 @@ export function WorldProvider({ children }) {
     const burstBonus = Math.min(0.05 * Math.max(0, nextComboCount - 1), 0.5);
     const rewardExp = Math.max(
       0,
-      Math.round(baseReward.exp * (1 + burstBonus) * rewardModifier.expMultiplier) +
+      Math.round(
+        baseReward.exp * (1 + burstBonus) * rewardModifier.expMultiplier * streakMultiplier
+      ) +
         rewardModifier.expBonus
     );
     const rewardCoins = Math.max(
       0,
-      Math.round(baseReward.coins * (1 + burstBonus) * rewardModifier.coinMultiplier)
+      Math.round(
+        baseReward.coins * (1 + burstBonus) * rewardModifier.coinMultiplier * streakMultiplier
+      )
     );
 
     const completedAt = Date.now();
@@ -939,6 +969,8 @@ export function WorldProvider({ children }) {
           ...item,
           status: "todo",
           lastCompletedAt: completedAt,
+          streak: streakUpdate.streak,
+          streakActive: streakUpdate.streakActive,
         };
       }
       return {
@@ -946,6 +978,8 @@ export function WorldProvider({ children }) {
         status: "done",
         completedAt,
         lastCompletedAt: completedAt,
+        streak: streakUpdate.streak,
+        streakActive: streakUpdate.streakActive,
       };
     });
 

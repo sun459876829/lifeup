@@ -351,6 +351,11 @@ export default function TasksPage() {
                       ))}
                     </div>
                   )}
+                  {task.streakActive && (
+                    <div className="mt-2 text-xs text-amber-400">
+                      🔥 习惯叠加中（奖励 +20%）
+                    </div>
+                  )}
                   <div className="mt-3 flex items-center justify-between">
                     <div className="text-xs text-slate-500">
                       预计奖励 🪙 {rewardPreview.coins} · {repeatable ? "可重复" : "一次性"}
