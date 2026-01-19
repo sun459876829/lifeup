@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useWorld } from "../worldState";
 import { computeRewards, resolveDifficultyValue } from "../../lib/loadTasks";
+import { getBatchRecommendation } from "../../engine/batchEngine";
 
 const CUSTOM_CATEGORY_LABELS = {
   study: "学习",
@@ -50,9 +51,19 @@ function resolveCategoryLabel(category) {
 }
 
 export default function TasksPage() {
-  const { hydrated, tasks, stats, achievements, registerTask, completeTask, burst, taskConfig } =
-    useWorld();
+  const {
+    hydrated,
+    tasks,
+    stats,
+    achievements,
+    registerTask,
+    completeTask,
+    grantExp,
+    burst,
+    taskConfig,
+  } = useWorld();
   const [message, setMessage] = useState("");
+  const [batchRecommendation, setBatchRecommendation] = useState(null);
   const lastClickRef = useRef(new Map());
 
   const groupedTemplates = useMemo(() => {
@@ -91,6 +102,13 @@ export default function TasksPage() {
       setTimeout(() => setMessage(""), 3000);
       return;
     }
+    const completedTask = tasks.find((task) => task.id === taskId);
+    const recommendedBatch = getBatchRecommendation({
+      completedTask,
+      taskConfig,
+      activeTasks: tasks.filter((task) => task.status === "todo" && task.id !== taskId),
+    });
+    setBatchRecommendation(recommendedBatch);
     const burstRate = Math.round((result.burstBonus || 0) * 100);
     const comboNote =
       result.comboCount > 1 && burstRate > 0 ? `连击 x${result.comboCount}，额外奖励 +${burstRate}%！` : "";
@@ -98,6 +116,31 @@ export default function TasksPage() {
       `✨ 完成任务，获得 ${result.rewardCoins}🪙 + ${result.rewardExp} EXP ${comboNote}`.trim()
     );
     setTimeout(() => setMessage(""), 3000);
+  }
+
+  function handleApplyBatch() {
+    if (!batchRecommendation) return;
+    const tasksToAdd = batchRecommendation.tasks || [];
+    tasksToAdd.forEach((template) => {
+      registerTask({ templateId: template.templateId });
+    });
+    const totalExp = tasksToAdd.reduce(
+      (sum, template) => sum + computeRewards(template.difficulty).exp,
+      0
+    );
+    const bonusExp = Math.round(totalExp * (batchRecommendation.bonus || 0));
+    if (bonusExp > 0) {
+      grantExp(bonusExp, "batch_bonus");
+    }
+    setMessage(
+      `🪄 已添加 ${tasksToAdd.length} 个批处理任务${bonusExp > 0 ? `，额外 +${bonusExp} EXP` : ""}`
+    );
+    setBatchRecommendation(null);
+    setTimeout(() => setMessage(""), 3000);
+  }
+
+  function handleDismissBatch() {
+    setBatchRecommendation(null);
   }
 
   function canAccept(template) {
@@ -147,6 +190,36 @@ export default function TasksPage() {
       {message && (
         <div className="rounded-lg bg-violet-500/20 border border-violet-500/40 p-3 text-sm text-violet-100">
           {message}
+        </div>
+      )}
+
+      {batchRecommendation && (
+        <div className="rounded-lg border border-violet-500/40 bg-violet-500/20 p-4 text-sm text-violet-50 shadow-[0_0_18px_rgba(139,92,246,0.3)]">
+          <div className="font-medium">🪄 是否进行批处理？奖励 +10% EXP</div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-violet-100/80">
+            {batchRecommendation.tasks.map((task) => (
+              <span
+                key={task.templateId}
+                className="rounded-full border border-violet-400/40 bg-violet-500/10 px-2 py-0.5"
+              >
+                {task.name}
+              </span>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={handleApplyBatch}
+              className="rounded-lg bg-violet-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-400"
+            >
+              一键批处理
+            </button>
+            <button
+              onClick={handleDismissBatch}
+              className="rounded-lg border border-violet-500/40 px-3 py-1.5 text-xs text-violet-100 transition hover:border-violet-300"
+            >
+              暂不
+            </button>
+          </div>
         </div>
       )}
 

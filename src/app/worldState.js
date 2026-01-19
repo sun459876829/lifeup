@@ -669,6 +669,29 @@ export function WorldProvider({ children }) {
     });
   }, [state]);
 
+  const grantExp = useCallback((amount, reason = "batch_bonus") => {
+    if (!state || !amount) return;
+    const normalizedAmount = Math.max(0, Math.round(amount));
+    if (!normalizedAmount) return;
+    setState((prev) => {
+      const nextHistory = pushHistoryEntry(
+        buildHistoryEntry({
+          type: "exp_gain",
+          payload: {
+            amount: normalizedAmount,
+            reason,
+          },
+        }),
+        prev.history
+      );
+      return {
+        ...prev,
+        history: nextHistory,
+        exp: (prev.exp || 0) + normalizedAmount,
+      };
+    });
+  }, [state]);
+
   const spendCoins = useCallback((amount, reason = "manual_adjust") => {
     if (!state || amount <= 0) return false;
     if (state.currency.coins < amount) return false;
@@ -1364,6 +1387,7 @@ export function WorldProvider({ children }) {
     dayIndex: timeState.dayIndex,
     refreshTime,
     addCoins,
+    grantExp,
     spendCoins,
     exchangeCoinsForGameTicket,
     useGameTicket,
@@ -1389,6 +1413,7 @@ export function WorldProvider({ children }) {
     timeState,
     refreshTime,
     addCoins,
+    grantExp,
     spendCoins,
     exchangeCoinsForGameTicket,
     useGameTicket,
