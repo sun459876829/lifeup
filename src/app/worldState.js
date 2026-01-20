@@ -138,8 +138,9 @@ function buildDefaultAttributes() {
   }));
 }
 
-function initializeAchievements(existing = []) {
-  const existingMap = new Map(existing.map((item) => [item.id || item.key, item]));
+function initializeAchievements(existing) {
+  const safeExisting = Array.isArray(existing) ? existing : [];
+  const existingMap = new Map(safeExisting.map((item) => [item.id || item.key, item]));
   return ACHIEVEMENTS_CONFIG.map((template) => {
     const templateId = resolveAchievementId(template);
     const prior = existingMap.get(templateId);
@@ -379,18 +380,19 @@ function createDefaultState() {
 }
 
 function normalizeTreasureMap(map) {
+  const safeMap = map && typeof map === "object" ? map : {};
   return {
-    id: map.id || newId(),
-    name: map.name || "未知藏宝图",
-    tier: map.tier || "B",
-    source: map.source || "event",
-    status: map.status || "new",
-    targetTasks: map.targetTasks || 5,
-    completedTasks: map.completedTasks || 0,
-    baseReward: map.baseReward || {},
-    bigReward: map.bigReward || {},
-    targetCategories: Array.isArray(map.targetCategories) ? map.targetCategories : undefined,
-    triggerKey: map.triggerKey,
+    id: safeMap.id || newId(),
+    name: safeMap.name || "未知藏宝图",
+    tier: safeMap.tier || "B",
+    source: safeMap.source || "event",
+    status: safeMap.status || "new",
+    targetTasks: safeMap.targetTasks || 5,
+    completedTasks: safeMap.completedTasks || 0,
+    baseReward: safeMap.baseReward || {},
+    bigReward: safeMap.bigReward || {},
+    targetCategories: Array.isArray(safeMap.targetCategories) ? safeMap.targetCategories : undefined,
+    triggerKey: safeMap.triggerKey,
   };
 }
 
@@ -530,7 +532,7 @@ function migrateLegacyState(raw) {
 
 function loadState() {
   const parsed = safeLoad(STORAGE_KEY, null);
-  if (parsed) {
+  if (parsed && typeof parsed === "object") {
       const world = { ...DEFAULT_WORLD, ...(parsed.world || {}) };
       return {
         ...createDefaultState(),
@@ -542,18 +544,19 @@ function loadState() {
         tickets: { game: parsed.tickets?.game ?? 0 },
         tasks: Array.isArray(parsed.tasks)
           ? parsed.tasks.map((task) => {
+              const safeTask = task && typeof task === "object" ? task : {};
               const defaults = resolveTaskDefaults({
-                title: task.title,
-                category: task.category,
-                categoryKey: task.categoryKey,
-                size: task.size,
-                priority: task.priority,
-                type: task.type,
-                baseReward: task.baseReward,
-                attributeImpact: task.attributeImpact,
+                title: safeTask.title,
+                category: safeTask.category,
+                categoryKey: safeTask.categoryKey,
+                size: safeTask.size,
+                priority: safeTask.priority,
+                type: safeTask.type,
+                baseReward: safeTask.baseReward,
+                attributeImpact: safeTask.attributeImpact,
               });
               return {
-                ...task,
+                ...safeTask,
                 category: defaults.category,
                 categoryKey: defaults.categoryKey,
                 size: defaults.size,
@@ -561,9 +564,9 @@ function loadState() {
                 type: defaults.type,
                 attributeImpact: defaults.attributeImpact,
                 baseReward: defaults.baseReward,
-                updatedAt: task.updatedAt || task.createdAt || Date.now(),
-                ...normalizeTaskMeta({ ...task, categoryKey: defaults.categoryKey }),
-                ...normalizeTaskStreakState(task),
+                updatedAt: safeTask.updatedAt || safeTask.createdAt || Date.now(),
+                ...normalizeTaskMeta({ ...safeTask, categoryKey: defaults.categoryKey }),
+                ...normalizeTaskStreakState(safeTask),
               };
             })
           : [],
