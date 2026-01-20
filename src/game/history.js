@@ -13,10 +13,13 @@ export const HISTORY_LIMIT = 200;
  * @typedef {Object} HistoryEntry
  * @property {string} id
  * @property {string} type
+ * @property {string} [kind]
  * @property {number} timestamp
+ * @property {number} [createdAt]
  * @property {Record<string, any>} payload
  * @property {HistoryUndo | null} [undo]
  * @property {boolean} [undoable]
+ * @property {boolean} [canUndo]
  * @property {boolean} [undone]
  * @property {number} [undoneAt]
  */
@@ -67,13 +70,17 @@ export function pushHistory(entry, history) {
   if (!entryType) return history || [];
   const undo = entry?.undo ?? null;
   const undoable = typeof entry?.undoable === "boolean" ? entry.undoable : Boolean(undo);
+  const canUndo = typeof entry?.canUndo === "boolean" ? entry.canUndo : undoable;
   const normalizedEntry = {
     id: entry.id || newId(),
     type: entryType,
+    kind: entry.kind || entryType,
     timestamp: entry.timestamp || entry.createdAt || Date.now(),
+    createdAt: entry.createdAt || entry.timestamp || Date.now(),
     payload: entry.payload || {},
     undo,
     undoable,
+    canUndo,
     undone: entry.undone || false,
     undoneAt: entry.undoneAt,
   };

@@ -13,6 +13,17 @@ const DIFFICULTY_LABELS = {
   huge: "huge · 史诗",
 };
 
+const CATEGORY_LABELS = {
+  learning: "认知",
+  cleaning: "清理",
+  health: "体力",
+  work: "工作",
+  english: "认知",
+  explore: "娱乐",
+  context: "其他",
+  other: "其他",
+};
+
 function resolveCategoryKind(category, templates) {
   const matches = templates.find((template) => template.category === category);
   return matches?.category || "misc";
@@ -25,7 +36,7 @@ export default function CustomTasksPage() {
     title: "",
     category: "",
     difficulty: "",
-    minutes: "30",
+    minutes: "",
     notes: "",
   });
   const [feedback, setFeedback] = useState(null);
@@ -33,7 +44,10 @@ export default function CustomTasksPage() {
   const categoryOptions = useMemo(() => {
     const templates = Object.values(taskConfig || {});
     const categories = Array.from(new Set(templates.map((template) => template.category)));
-    return categories.map((category) => ({ value: category, label: category }));
+    return categories.map((category) => ({
+      value: category,
+      label: CATEGORY_LABELS[category] || category,
+    }));
   }, [taskConfig]);
 
   const difficultyOptions = useMemo(
@@ -62,34 +76,26 @@ export default function CustomTasksPage() {
       setFeedback({ type: "error", text: "请先填写任务标题。" });
       return;
     }
-    if (!form.category) {
-      setFeedback({ type: "error", text: "请选择任务分类。" });
-      return;
-    }
-
-    if (!form.difficulty) {
-      setFeedback({ type: "error", text: "请选择任务难度。" });
-      return;
-    }
-
-    const minutesValue = Number(form.minutes);
-    if (!minutesValue || minutesValue < 5 || minutesValue > 180) {
+    const minutesValue = form.minutes ? Number(form.minutes) : null;
+    if (minutesValue !== null && (minutesValue < 5 || minutesValue > 180)) {
       setFeedback({ type: "error", text: "时长建议填写 5～180 分钟。" });
       return;
     }
-
-    const preview = computeRewards(form.difficulty);
+    const preview = form.difficulty ? computeRewards(form.difficulty) : null;
 
     const created = registerTask({
       title,
-      category: form.category,
+      category: form.category || undefined,
       notes: form.notes.trim(),
-      difficulty: preview.difficultyKey,
-      minutes: Number(form.minutes) || 30,
-      kind: resolveCategoryKind(form.category, Object.values(taskConfig || {})),
-      exp: preview.exp,
-      coinsReward: preview.coins,
-      rewardPreview: { coins: preview.coins, exp: preview.exp },
+      difficulty: preview?.difficultyKey,
+      minutes: minutesValue || undefined,
+      estimateMinutes: minutesValue || undefined,
+      kind: form.category
+        ? resolveCategoryKind(form.category, Object.values(taskConfig || {}))
+        : undefined,
+      exp: preview?.exp,
+      coinsReward: preview?.coins,
+      rewardPreview: preview ? { coins: preview.coins, exp: preview.exp } : undefined,
       isRepeatable: true,
       isUserCreated: true,
     });
@@ -104,7 +110,7 @@ export default function CustomTasksPage() {
         title: "",
         category: "",
         difficulty: "",
-        minutes: "30",
+        minutes: "",
         notes: "",
       });
     }
@@ -195,16 +201,15 @@ export default function CustomTasksPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <label className="text-xs text-slate-400" htmlFor="task-category">
-                  分类
+                  分类（可选，自动识别）
                 </label>
                 <select
                   id="task-category"
                   value={form.category}
                   onChange={(event) => handleChange("category", event.target.value)}
                   className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
-                  required
                 >
-                  <option value="">请选择分类</option>
+                  <option value="">自动识别</option>
                   {categoryOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
@@ -215,7 +220,7 @@ export default function CustomTasksPage() {
 
               <div className="space-y-2">
                 <label className="text-xs text-slate-400" htmlFor="task-minutes">
-                  预估时长（分钟）
+                  预估时长（分钟，可选）
                 </label>
                 <input
                   id="task-minutes"
@@ -233,16 +238,15 @@ export default function CustomTasksPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <label className="text-xs text-slate-400" htmlFor="task-difficulty">
-                  难度（1～5）
+                  难度（可选）
                 </label>
                 <select
                   id="task-difficulty"
                   value={form.difficulty}
                   onChange={(event) => handleChange("difficulty", event.target.value)}
                   className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
-                  required
                 >
-                  <option value="">选择难度</option>
+                  <option value="">自动估算</option>
                   {difficultyOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
@@ -284,7 +288,7 @@ export default function CustomTasksPage() {
                 <div className="text-xs text-slate-400">当前连击可能进一步提高。</div>
               </div>
             ) : (
-              <div className="mt-3 text-xs text-slate-500">选择难度与时长后显示预估奖励。</div>
+              <div className="mt-3 text-xs text-slate-500">选择难度后显示预估奖励。</div>
             )}
           </aside>
         </div>

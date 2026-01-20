@@ -2,12 +2,11 @@
 
 import { useRef, useState } from "react";
 import { useWorld } from "../worldState";
-import { COIN_TO_RMB } from "../../game/config";
 
 const GAME_TICKET_COST = 50;
 
 export default function ShopPage() {
-  const { hydrated, currency, tickets, exchangeCoinsForGameTicket, useGameTicket } = useWorld();
+  const { hydrated, currency, tickets, settings, exchangeCoinsForGameTicket, useGameTicket } = useWorld();
   const [message, setMessage] = useState("");
   const lastClickRef = useRef({});
 
@@ -64,7 +63,7 @@ export default function ShopPage() {
             <div className="text-2xl font-bold text-yellow-300">{currency.coins}🪙</div>
           </div>
           <div className="text-xs text-slate-500 mt-2">
-            1 魔力币 ≈ {COIN_TO_RMB} 元兑换额度
+            当前换算：{settings?.coinsPerYuan ?? 10} 金币 ≈ 1 元（仅供参考）
           </div>
         </div>
         <div className="rounded-xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 to-cyan-500/5 p-4">

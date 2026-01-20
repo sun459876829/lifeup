@@ -1,4 +1,5 @@
 const GAME_START_DATE_KEY = "lifeup.gameStartDate.v1";
+const GAME_DAY_KEY_STORAGE = "lifeup.gameDayKey.v1";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 let gameStart: Date | null = null;
@@ -75,4 +76,40 @@ export function getDayIndex(now: Date = getNow()): number {
   return Math.max(0, Math.floor(diff / MS_PER_DAY));
 }
 
-export { GAME_START_DATE_KEY };
+export function getGameDayKey(now: Date = getNow()): string {
+  if (typeof window === "undefined") {
+    return getTodayKey(now);
+  }
+  try {
+    const stored = localStorage.getItem(GAME_DAY_KEY_STORAGE);
+    if (stored) return stored;
+  } catch (error) {
+    console.error("Failed to read game day key", error);
+  }
+  const today = getTodayKey(now);
+  try {
+    localStorage.setItem(GAME_DAY_KEY_STORAGE, today);
+  } catch (error) {
+    console.error("Failed to store game day key", error);
+  }
+  return today;
+}
+
+export function setGameDayKey(nextKey: string): string {
+  if (typeof window === "undefined") return nextKey;
+  const key = nextKey || getTodayKey();
+  try {
+    localStorage.setItem(GAME_DAY_KEY_STORAGE, key);
+  } catch (error) {
+    console.error("Failed to store game day key", error);
+  }
+  return key;
+}
+
+export function canAdvanceGameDay(now: Date = getNow()): boolean {
+  const todayKey = getTodayKey(now);
+  const gameDayKey = getGameDayKey(now);
+  return todayKey > gameDayKey;
+}
+
+export { GAME_START_DATE_KEY, GAME_DAY_KEY_STORAGE };
