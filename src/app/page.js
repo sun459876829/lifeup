@@ -28,6 +28,31 @@ const HISTORY_LABELS = {
   history_undo: "撤销记录",
 };
 
+function formatTileEventRewards(result) {
+  if (!result) return "暂无额外奖励";
+  const parts = [];
+  if (result.coinsDelta) {
+    parts.push(`金币 +${result.coinsDelta}`);
+  }
+  if (result.expDelta) {
+    parts.push(`EXP +${result.expDelta}`);
+  }
+  if (result.resourceChanges) {
+    Object.entries(result.resourceChanges).forEach(([id, amount]) => {
+      if (!amount) return;
+      const meta = RESOURCES[id];
+      parts.push(`${meta?.name || id} x${amount}`);
+    });
+  }
+  if (result.inventoryChanges) {
+    Object.entries(result.inventoryChanges).forEach(([id, amount]) => {
+      if (!amount) return;
+      parts.push(`${ITEMS?.[id]?.name || id} x${amount}`);
+    });
+  }
+  return parts.length > 0 ? parts.join("，") : "暂无额外奖励";
+}
+
 export default function Page() {
   const {
     hydrated,
@@ -48,6 +73,7 @@ export default function Page() {
     tasks: survivalTasks,
     board,
     player,
+    tileEvents,
     spawnTaskInstance,
     worldTime,
     advanceWorldDay,
@@ -73,6 +99,11 @@ export default function Page() {
       .sort((a, b) => (b.timestamp || b.createdAt || 0) - (a.timestamp || a.createdAt || 0))
       .slice(0, 5);
   }, [history]);
+
+  const recentTileEvents = useMemo(() => {
+    const list = Array.isArray(tileEvents) ? tileEvents : [];
+    return list.slice(0, 3);
+  }, [tileEvents]);
 
   if (!hydrated) {
     return (
@@ -311,6 +342,31 @@ export default function Page() {
         ) : (
           <div className="text-xs text-slate-500">
             {survivalHydrated ? "等待下一次世界推进。" : "正在同步漂流物…"}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-3 shadow-lg shadow-slate-950/30">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium text-slate-100">🗺️ 最近事件</div>
+          <div className="text-xs text-slate-500">最新 3 条</div>
+        </div>
+        {recentTileEvents.length === 0 ? (
+          <div className="text-xs text-slate-500">还没有触发棋盘事件，掷骰子前进看看。</div>
+        ) : (
+          <div className="space-y-3">
+            {recentTileEvents.map((event) => (
+              <div
+                key={`${event.timestamp}-${event.tileId}`}
+                className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-1"
+              >
+                <div className="text-slate-300">{event.result?.description}</div>
+                <div className="text-slate-500">奖励：{formatTileEventRewards(event.result)}</div>
+                {event.result?.rare && (
+                  <div className="text-amber-300">✨ 稀有事件</div>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </section>

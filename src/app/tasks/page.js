@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useGameState } from "@/state/GameStateContext";
 import { computeReward, estimateRewardRange } from "@/game/config/rewards";
 import { RESOURCES } from "@/game/config/resources";
+import { ITEMS } from "@/game/config/items";
 import { getBatchSuggestion } from "@/game/engine/batchEngine";
 
 const CATEGORY_LABELS = {
@@ -35,6 +36,32 @@ const RESOURCE_ICONS = {
   languageRune: "📘",
   soulShard: "✨",
 };
+
+function formatTileEventReward(result) {
+  if (!result) return "";
+  const parts = [];
+  if (result.coinsDelta) {
+    parts.push(`金币 +${result.coinsDelta}`);
+  }
+  if (result.expDelta) {
+    parts.push(`EXP +${result.expDelta}`);
+  }
+  if (result.resourceChanges) {
+    Object.entries(result.resourceChanges).forEach(([id, amount]) => {
+      if (!amount) return;
+      const meta = RESOURCES[id];
+      const icon = RESOURCE_ICONS[id] || "📦";
+      parts.push(`${icon} ${meta?.name || id} x${amount}`);
+    });
+  }
+  if (result.inventoryChanges) {
+    Object.entries(result.inventoryChanges).forEach(([id, amount]) => {
+      if (!amount) return;
+      parts.push(`🎁 ${ITEMS?.[id]?.name || id} x${amount}`);
+    });
+  }
+  return parts.length > 0 ? parts.join("，") : "暂无额外奖励";
+}
 
 function formatDifficulty(difficulty) {
   const value = DIFFICULTY_STARS[difficulty] || 1;
@@ -155,6 +182,7 @@ export default function TasksPage() {
         boardSteps: result.boardSteps,
         playerPosition: result.playerPosition,
         playerLaps: result.playerLaps,
+        tileEvent: result.tileEvent,
       });
     }
 
@@ -252,6 +280,16 @@ export default function TasksPage() {
                 {board?.tiles?.[diceFeedback.playerPosition ?? 0]?.name || "未知区域"}（第{" "}
                 {(diceFeedback.playerLaps ?? 0) + 1} 圈）
               </div>
+              {diceFeedback.tileEvent?.result && (
+                <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-200 space-y-1">
+                  <div className="text-slate-300">
+                    事件：{diceFeedback.tileEvent.result.description}
+                  </div>
+                  <div className="text-slate-400">
+                    奖励：{formatTileEventReward(diceFeedback.tileEvent.result)}
+                  </div>
+                </div>
+              )}
             </div>
             <button
               type="button"

@@ -15,6 +15,10 @@ import { RESOURCES } from "@/game/config/resources";
 import { TASK_TEMPLATES } from "@/game/config/tasksConfig";
 import { CRAFTING_RECIPES } from "@/game/config/craftingConfig";
 import { rollDice } from "@/game/engine/diceEngine";
+import {
+  resolveTileEvent,
+  type TileEventResult,
+} from "@/game/engine/tileEventEngine";
 import { loadHistory, pushHistory as pushHistoryEntry } from "@/game/history";
 
 export type TaskDifficulty = "tiny" | "small" | "medium" | "large" | "huge";
@@ -80,6 +84,18 @@ export type HistoryEntry = {
   timestamp: number;
 };
 
+export type BoardTileEventRecord = {
+  tileId: string;
+  tileType: string;
+  result: TileEventResult;
+  timestamp: number;
+};
+
+export type BoardTileEventOutcome = {
+  tile: BoardTile;
+  result: TileEventResult;
+};
+
 export type DailyDrop = {
   day: number;
   drops: Array<{ type: "coins" | "resource" | "item"; id?: string; amount: number }>;
@@ -112,6 +128,7 @@ export type GameState = {
     active: TaskInstance[];
   };
   history: HistoryEntry[];
+  tileEvents: BoardTileEventRecord[];
   parkedIdeas: ParkedIdea[];
   taskStreaks: Record<string, TaskStreakState>;
 };
@@ -159,6 +176,7 @@ function createDefaultState(): GameState {
       active: [],
     },
     history: [],
+    tileEvents: [],
     parkedIdeas: [],
     taskStreaks: {},
   };
@@ -210,6 +228,7 @@ function normalizeState(raw: Partial<GameState> | null): GameState {
       active: Array.isArray(raw.tasks?.active) ? raw.tasks.active : [],
     },
     history: Array.isArray(raw.history) ? raw.history : base.history,
+    tileEvents: Array.isArray(raw.tileEvents) ? raw.tileEvents : base.tileEvents,
     parkedIdeas: Array.isArray(raw.parkedIdeas) ? raw.parkedIdeas : base.parkedIdeas,
     taskStreaks: raw.taskStreaks || base.taskStreaks,
   };
@@ -325,7 +344,7 @@ const GameStateContext = createContext<
       templateId: string,
       options?: { bonusMultiplier?: number; startedAt?: number | null }
     ) => TaskInstance | null;
-    movePlayer: (steps: number) => void;
+    movePlayer: (steps: number, options?: { lastTask?: TaskTemplate | null }) => BoardTileEventOutcome | null;
     moveNpc: (steps: number) => void;
     completeTaskInstance: (
       instanceId: string,
@@ -339,6 +358,7 @@ const GameStateContext = createContext<
       playerLaps?: number;
       npcPosition?: number;
       npcLaps?: number;
+      tileEvent?: BoardTileEventOutcome | null;
     };
     advanceWorldDay: () => void;
     pushHistory: (entry: HistoryEntry) => void;
@@ -665,33 +685,65 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
     return instance;
   }, []);
 
-  const movePlayer = useCallback((steps: number) => {
-    if (!Number.isFinite(steps) || !steps) return;
-    setState((prev) => {
-      const tileCount = prev.board.tiles.length;
-      if (!tileCount) return prev;
-      const from = prev.player.position;
+  const movePlayer = useCallback(
+    (steps: number, options?: { lastTask?: TaskTemplate | null }) => {
+      if (!Number.isFinite(steps) || !steps) return null;
+      const current = stateRef.current;
+      const tileCount = current.board.tiles.length;
+      if (!tileCount) return null;
+      const from = current.player.position;
       const target = from + steps;
       const to = ((target % tileCount) + tileCount) % tileCount;
-      const lapsBefore = prev.player.laps;
+      const lapsBefore = current.player.laps;
       const lapsAfter = target >= tileCount ? lapsBefore + 1 : lapsBefore;
-      const entry = buildHistoryEntry("board_move_player", {
-        from,
-        to,
-        steps,
-        lapsBefore,
-        lapsAfter,
-      });
-      return {
-        ...prev,
-        player: {
-          position: to,
-          laps: lapsAfter,
-        },
-        history: pushHistoryEntry(entry, prev.history),
+      const tile = current.board.tiles[to];
+      const result = resolveTileEvent(tile, { gameState: current, lastTask: options?.lastTask });
+      const tileEventRecord: BoardTileEventRecord = {
+        tileId: tile.id,
+        tileType: tile.type,
+        result,
+        timestamp: Date.now(),
       };
-    });
-  }, []);
+
+      setState((prev) => {
+        const entry = buildHistoryEntry("board_move_player", {
+          from,
+          to,
+          steps,
+          lapsBefore,
+          lapsAfter,
+        });
+        const tileEventEntry = buildHistoryEntry("board_tile_event", {
+          tileId: tile.id,
+          tileType: tile.type,
+          result,
+        });
+        const hasInventoryChanges =
+          result.inventoryChanges && Object.keys(result.inventoryChanges).length > 0;
+        return {
+          ...prev,
+          player: {
+            position: to,
+            laps: lapsAfter,
+          },
+          inventory: hasInventoryChanges
+            ? mergeInventoryChanges(prev.inventory, result.inventoryChanges || {})
+            : prev.inventory,
+          tileEvents: [tileEventRecord, ...(prev.tileEvents || [])].slice(0, 20),
+          history: pushHistoryEntry(tileEventEntry, pushHistoryEntry(entry, prev.history)),
+        };
+      });
+
+      addCoins(result.coinsDelta || 0, "board_tile_event");
+      addExp(result.expDelta || 0, "board_tile_event");
+      if (result.resourceChanges) {
+        addResources(result.resourceChanges, "board_tile_event");
+      }
+
+      return { tile, result };
+    },
+    [addCoins, addExp, addResources]
+  );
 
   const moveNpc = useCallback((steps: number) => {
     if (!Number.isFinite(steps) || !steps) return;
@@ -839,7 +891,7 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       addCoins(reward.coins, "task_complete");
       addExp(reward.exp, "task_complete");
       addResources(resourceChanges, "task_complete");
-      movePlayer(boardSteps);
+      const tileEvent = movePlayer(boardSteps, { lastTask: template });
       moveNpc(npcSteps);
 
       return {
@@ -851,6 +903,7 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
         playerLaps: nextPlayer.laps,
         npcPosition: nextNpc.position,
         npcLaps: nextNpc.laps,
+        tileEvent,
       };
     },
     [addCoins, addExp, addResources, moveNpc, movePlayer]
