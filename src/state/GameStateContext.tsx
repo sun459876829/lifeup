@@ -29,6 +29,12 @@ type DailyDropState = {
   reward: DailyDropReward;
 };
 
+type MonopolyRollState = {
+  dayKey: string;
+  rolled: boolean;
+  lastRoll?: number;
+};
+
 type GameState = {
   coins: number;
   exp: number;
@@ -51,6 +57,7 @@ type GameState = {
   };
   buildState: { placedStructures: Array<{ itemId?: string; placedAt?: number }> };
   history: Array<any>;
+  monopolyRoll: MonopolyRollState;
 };
 
 const DEFAULT_STATE: GameState = {
@@ -79,6 +86,11 @@ const DEFAULT_STATE: GameState = {
   },
   buildState: { placedStructures: [] },
   history: [],
+  monopolyRoll: {
+    dayKey: getTodayKey(),
+    rolled: false,
+    lastRoll: undefined,
+  },
 };
 
 type GameStateContextValue = {
@@ -96,6 +108,7 @@ type GameStateContextValue = {
   dailyDrop: GameState["dailyDrop"];
   worldTime: GameState["worldTime"];
   buildState: GameState["buildState"];
+  monopolyRoll: GameState["monopolyRoll"];
   spawnTaskInstance: (templateId: string, options?: { bonusMultiplier?: number }) => any;
   completeTaskInstance: (instanceId: string) => any;
   registerTaskTemplates: (templates: Record<string, any>) => void;
@@ -103,6 +116,7 @@ type GameStateContextValue = {
   addCoins: (amount: number, source?: string) => void;
   advanceWorldDay: () => void;
   movePlayer: (steps: number) => void;
+  recordMonopolyRoll: (roll: number) => void;
   canCraft: (recipeId: string) => boolean;
   craft: (recipeId: string) => boolean;
   placeStructure: (itemId: string) => boolean;
@@ -143,6 +157,7 @@ function loadState(): GameState {
       worldTime: parsed.worldTime || DEFAULT_STATE.worldTime,
       buildState: parsed.buildState || DEFAULT_STATE.buildState,
       history: Array.isArray(parsed.history) ? parsed.history : [],
+      monopolyRoll: parsed.monopolyRoll || DEFAULT_STATE.monopolyRoll,
     };
   } catch {
     return { ...DEFAULT_STATE };
@@ -192,6 +207,16 @@ function refreshDailyDrop(previous: GameState) {
   };
 }
 
+function refreshMonopolyRoll(previous: GameState) {
+  const todayKey = getTodayKey();
+  if (previous.monopolyRoll?.dayKey === todayKey) return previous.monopolyRoll;
+  return {
+    dayKey: todayKey,
+    rolled: false,
+    lastRoll: undefined,
+  };
+}
+
 export function GameStateProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<GameState>(() => loadState());
   const [hydrated, setHydrated] = useState(false);
@@ -210,6 +235,7 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({
       ...prev,
       dailyDrop: refreshDailyDrop(prev),
+      monopolyRoll: refreshMonopolyRoll(prev),
     }));
   }, [hydrated]);
 
@@ -394,6 +420,17 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
     }));
   }, [state.board.tiles, state.player]);
 
+  const recordMonopolyRoll = useCallback((roll: number) => {
+    setState((prev) => ({
+      ...prev,
+      monopolyRoll: {
+        dayKey: getTodayKey(),
+        rolled: true,
+        lastRoll: roll,
+      },
+    }));
+  }, []);
+
   const canCraft = useCallback(
     (recipeId: string) => {
       const recipe = CRAFTING_RECIPES[recipeId];
@@ -494,6 +531,7 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       dailyDrop: state.dailyDrop,
       worldTime: state.worldTime,
       buildState: state.buildState,
+      monopolyRoll: state.monopolyRoll,
       spawnTaskInstance,
       completeTaskInstance,
       registerTaskTemplates,
@@ -501,6 +539,7 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       addCoins,
       advanceWorldDay,
       movePlayer,
+      recordMonopolyRoll,
       canCraft,
       craft,
       placeStructure,
@@ -517,6 +556,7 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       addCoins,
       advanceWorldDay,
       movePlayer,
+      recordMonopolyRoll,
       canCraft,
       craft,
       placeStructure,
