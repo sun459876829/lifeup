@@ -1,4 +1,4 @@
-export type ItemCategory = "ticket" | "food" | "buff" | "upgrade";
+export type ItemCategory = "ticket" | "food" | "buff" | "upgrade" | "structure";
 
 export type ItemMeta = {
   id: string;
@@ -36,6 +36,41 @@ export const ITEMS: Record<string, ItemMeta> = {
     description: "使用后进入 30 分钟专注状态。",
     icon: "🧪",
     category: "buff",
+  },
+  bed_basic: {
+    id: "bed_basic",
+    name: "基础小床",
+    description: "简单舒适的小床，让营地更像家。",
+    icon: "🛏️",
+    category: "structure",
+  },
+  desk_study: {
+    id: "desk_study",
+    name: "学习书桌",
+    description: "放置书桌，专注氛围更浓。",
+    icon: "📚",
+    category: "structure",
+  },
+  lamp_magic: {
+    id: "lamp_magic",
+    name: "魔法灯",
+    description: "夜色里发光的魔法灯。",
+    icon: "🪄",
+    category: "structure",
+  },
+  wall_photo: {
+    id: "wall_photo",
+    name: "照片墙",
+    description: "把记忆挂上墙，营地更温暖。",
+    icon: "🖼️",
+    category: "structure",
+  },
+  raft_front: {
+    id: "raft_front",
+    name: "木筏船头",
+    description: "建造木筏的前端结构。",
+    icon: "🛶",
+    category: "structure",
   },
 };
 

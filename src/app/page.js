@@ -73,10 +73,14 @@ export default function Page() {
     tasks: survivalTasks,
     board,
     player,
+    npc,
     tileEvents,
     spawnTaskInstance,
     worldTime,
     advanceWorldDay,
+    coins: survivalCoins,
+    exp: survivalExp,
+    buildState,
   } = useGameState();
   const [message, setMessage] = useState("");
   const [uiSettings, setUiSettings] = useState(DEFAULT_UI_SETTINGS);
@@ -175,20 +179,59 @@ export default function Page() {
   const canAdvanceWorld =
     !worldTime?.lastAdvanceAt || Date.now() - worldTime.lastAdvanceAt >= 6 * 60 * 60 * 1000;
   const currentTile = board?.tiles?.[player?.position ?? 0];
+  const tileCount = board?.tiles?.length || 0;
+  const playerPercent = tileCount ? Math.min(100, (player?.position / tileCount) * 100) : 0;
+  const npcPercent = tileCount ? Math.min(100, (npc?.position / tileCount) * 100) : 0;
+
+  const placedSummary = useMemo(() => {
+    const list = buildState?.placedStructures || [];
+    const counts = list.reduce((acc, item) => {
+      acc[item.itemId] = (acc[item.itemId] || 0) + 1;
+      return acc;
+    }, {});
+    const entries = Object.entries(counts);
+    if (entries.length === 0) {
+      return "还没有布置营地物件，去制作看看吧。";
+    }
+    const summary = entries
+      .map(([itemId, count]) => `${ITEMS[itemId]?.name || itemId}×${count}`)
+      .join("、");
+    return `你已经布置了：${summary}。你的营地越来越温暖了～`;
+  }, [buildState]);
 
   return (
     <div className="space-y-6">
-      <header className="space-y-3">
+      <header className="space-y-4">
         <div className="text-[11px] tracking-[0.3em] uppercase text-slate-500">
           LifeUP · Arcane Wilderness
         </div>
         <h1 className="text-3xl font-semibold bg-gradient-to-r from-violet-300 via-sky-200 to-emerald-300 bg-clip-text text-transparent">
           人生 · 饥荒魔法版 LifeUP
         </h1>
-        <div className="text-sm text-slate-400">第 {worldTime?.currentDay ?? 1} 天 · LifeUP 生存日志</div>
-        <div className="text-sm text-slate-400">
-          📍 你现在在：{currentTile?.name || "未知区域"}（第 {(player?.laps ?? 0) + 1} 圈 · 第{" "}
-          {(player?.position ?? 0) + 1} 格）
+        <div className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 via-slate-950/90 to-indigo-900/40 p-4 shadow-lg shadow-slate-950/30">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-3">
+              <div className="text-xs text-slate-500">世界时间</div>
+              <div className="text-sm text-slate-200 mt-1">
+                第 {worldTime?.currentDay ?? 1} 天 · 第 {(player?.laps ?? 0) + 1} 圈
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-3">
+              <div className="text-xs text-slate-500">当前位置</div>
+              <div className="text-sm text-slate-200 mt-1">
+                {currentTile?.name || "未知区域"} · 第 {(player?.position ?? 0) + 1} 格
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-3">
+              <div className="text-xs text-slate-500">生存资源</div>
+              <div className="text-sm text-slate-200 mt-1">
+                🪙 {survivalCoins} · ✨ EXP {survivalExp}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-violet-500/20 bg-violet-500/10 px-4 py-3 text-sm text-violet-100">
+          {placedSummary}
         </div>
         <p className="text-sm text-slate-400 max-w-2xl">
           管理饱食、精神与生命，穿行现实日循环，用任务与事件雕刻你的荒野命运。
@@ -346,31 +389,6 @@ export default function Page() {
         )}
       </section>
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-3 shadow-lg shadow-slate-950/30">
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-medium text-slate-100">🗺️ 最近事件</div>
-          <div className="text-xs text-slate-500">最新 3 条</div>
-        </div>
-        {recentTileEvents.length === 0 ? (
-          <div className="text-xs text-slate-500">还没有触发棋盘事件，掷骰子前进看看。</div>
-        ) : (
-          <div className="space-y-3">
-            {recentTileEvents.map((event) => (
-              <div
-                key={`${event.timestamp}-${event.tileId}`}
-                className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-1"
-              >
-                <div className="text-slate-300">{event.result?.description}</div>
-                <div className="text-slate-500">奖励：{formatTileEventRewards(event.result)}</div>
-                {event.result?.rare && (
-                  <div className="text-amber-300">✨ 稀有事件</div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
       <section className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-4 shadow-lg shadow-slate-950/30">
         <div className="flex items-center justify-between">
           <div>
@@ -406,63 +424,126 @@ export default function Page() {
       </section>
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4 shadow-lg shadow-slate-950/30">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-slate-100">🗂 今日任务区</h2>
+        <div className="lg:col-span-2 space-y-4">
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4 shadow-lg shadow-slate-950/30">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium text-slate-100">🗂 今日任务区</h2>
+              <Link
+                href="/tasks"
+                className="text-xs text-violet-300 hover:text-violet-200 transition"
+              >
+                去任务大厅 →
+              </Link>
+            </div>
+            {todoTasks.length === 0 ? (
+              <div className="text-sm text-slate-500">
+                暂时没有待办任务，去任务大厅领取一个新任务吧。
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {todoTasks.map((task) => {
+                  const template = task.templateId ? taskConfig?.[task.templateId] : null;
+                  const difficultyValue = resolveDifficultyValue(
+                    template?.difficulty || task.difficulty
+                  );
+                  return (
+                    <div
+                      key={task.id}
+                      className="rounded-xl border border-slate-800 bg-slate-950/80 p-3"
+                    >
+                      <div className="text-sm text-slate-200">{template?.name || task.title}</div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        {template?.category || task.category} · 难度 {difficultyValue}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4 shadow-lg shadow-slate-950/30">
+            <h2 className="text-sm font-medium text-slate-100">✅ 今日进展</h2>
+            {recentCompletions.length === 0 ? (
+              <div className="text-sm text-slate-500">今天还没有完成任务。</div>
+            ) : (
+              <div className="space-y-2">
+                {recentCompletions.map((entry) => {
+                  const template = entry.templateId ? taskConfig?.[entry.templateId] : null;
+                  return (
+                    <div
+                      key={entry.id}
+                      className="rounded-lg border border-slate-800 bg-slate-900/60 p-3"
+                    >
+                      <div className="text-sm text-slate-200">{template?.name || entry.title}</div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        {entry.completedAt ? new Date(entry.completedAt).toLocaleString("zh-CN") : "完成"}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             <Link
-              href="/tasks"
-              className="text-xs text-violet-300 hover:text-violet-200 transition"
+              href="/history"
+              className="inline-flex items-center text-xs text-slate-400 hover:text-violet-200 transition"
             >
-              去任务大厅 →
+              查看全部历史 →
             </Link>
           </div>
-          {todoTasks.length === 0 ? (
-            <div className="text-sm text-slate-500">
-              暂时没有待办任务，去任务大厅领取一个新任务吧。
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {todoTasks.map((task) => {
-                const template = task.templateId ? taskConfig?.[task.templateId] : null;
-                const difficultyValue = resolveDifficultyValue(template?.difficulty || task.difficulty);
-                return (
-                  <div key={task.id} className="rounded-xl border border-slate-800 bg-slate-950/80 p-3">
-                    <div className="text-sm text-slate-200">{template?.name || task.title}</div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      {template?.category || task.category} · 难度 {difficultyValue}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
 
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4 shadow-lg shadow-slate-950/30">
-          <h2 className="text-sm font-medium text-slate-100">✅ 今日进展</h2>
-          {recentCompletions.length === 0 ? (
-            <div className="text-sm text-slate-500">今天还没有完成任务。</div>
-          ) : (
-            <div className="space-y-2">
-              {recentCompletions.map((entry) => {
-                const template = entry.templateId ? taskConfig?.[entry.templateId] : null;
-                return (
-                  <div key={entry.id} className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
-                    <div className="text-sm text-slate-200">{template?.name || entry.title}</div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      {entry.completedAt ? new Date(entry.completedAt).toLocaleString("zh-CN") : "完成"}
-                    </div>
-                  </div>
-                );
-              })}
+        <div className="rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-900/30 via-slate-900/80 to-slate-950/90 p-6 space-y-4 shadow-lg shadow-slate-950/30">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium text-slate-100">🎲 大富翁情报</div>
+            <div className="text-xs text-slate-500">棋盘追踪</div>
+          </div>
+          <div className="space-y-3">
+            <div className="text-xs text-slate-400">你的位置 vs 影子旅伴</div>
+            <div className="relative h-9 rounded-full border border-slate-700 bg-slate-950/70">
+              <div
+                className="absolute top-1/2 h-4 w-4 -translate-y-1/2 -translate-x-1/2 rounded-full bg-emerald-400 shadow shadow-emerald-500/40"
+                style={{ left: `${playerPercent}%` }}
+              />
+              <div
+                className="absolute top-1/2 h-4 w-4 -translate-y-1/2 -translate-x-1/2 rounded-full bg-violet-400 shadow shadow-violet-500/40"
+                style={{ left: `${npcPercent}%` }}
+              />
             </div>
-          )}
-          <Link
-            href="/history"
-            className="inline-flex items-center text-xs text-slate-400 hover:text-violet-200 transition"
-          >
-            查看全部历史 →
-          </Link>
+            <div className="flex items-center justify-between text-[11px] text-slate-500">
+              <span>起点</span>
+              <span>{tileCount} 格</span>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-slate-400">
+              <span className="inline-flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                你
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-violet-400" />
+                影子旅伴
+              </span>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <div className="text-xs text-slate-400">最近 3 条格子事件</div>
+            {recentTileEvents.length === 0 ? (
+              <div className="text-xs text-slate-500">还没有触发棋盘事件，掷骰子前进看看。</div>
+            ) : (
+              <div className="space-y-2">
+                {recentTileEvents.map((event) => (
+                  <div
+                    key={`${event.timestamp}-${event.tileId}`}
+                    className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-200 space-y-1"
+                  >
+                    <div className="text-slate-300">{event.result?.description}</div>
+                    <div className="text-slate-500">奖励：{formatTileEventRewards(event.result)}</div>
+                    {event.result?.rare && <div className="text-amber-300">✨ 稀有事件</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
@@ -506,6 +587,35 @@ export default function Page() {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="rounded-2xl border border-slate-800 bg-gradient-to-r from-slate-900/80 via-slate-950/90 to-indigo-950/60 p-4 shadow-lg shadow-slate-950/30">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <Link
+            href="/craft"
+            className="rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-3 text-center text-violet-100 hover:border-violet-400 hover:bg-violet-500/20 transition"
+          >
+            🛠️ 制作 / 建造
+          </Link>
+          <Link
+            href="/inventory"
+            className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-center text-slate-200 hover:border-slate-500 hover:text-white transition"
+          >
+            🎒 背包
+          </Link>
+          <Link
+            href="/history"
+            className="rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-3 text-center text-slate-200 hover:border-slate-500 hover:text-white transition"
+          >
+            🕒 历史 / 撤销
+          </Link>
+          <Link
+            href="/ideas"
+            className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 py-3 text-center text-indigo-100 hover:border-indigo-400 hover:bg-indigo-500/20 transition"
+          >
+            💡 想法停车场
+          </Link>
+        </div>
       </section>
     </div>
   );

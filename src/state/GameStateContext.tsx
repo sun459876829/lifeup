@@ -102,6 +102,12 @@ export type DailyDrop = {
   claimed: boolean;
 };
 
+export type PlacedStructure = {
+  id: string;
+  itemId: string;
+  atDay: number;
+};
+
 export type GameState = {
   coins: number;
   exp: number;
@@ -126,6 +132,9 @@ export type GameState = {
   tasks: {
     templates: Record<string, TaskTemplate>;
     active: TaskInstance[];
+  };
+  buildState: {
+    placedStructures: PlacedStructure[];
   };
   history: HistoryEntry[];
   tileEvents: BoardTileEventRecord[];
@@ -174,6 +183,9 @@ function createDefaultState(): GameState {
     tasks: {
       templates: { ...TASK_TEMPLATES },
       active: [],
+    },
+    buildState: {
+      placedStructures: [],
     },
     history: [],
     tileEvents: [],
@@ -226,6 +238,11 @@ function normalizeState(raw: Partial<GameState> | null): GameState {
         ...(raw.tasks?.templates || {}),
       },
       active: Array.isArray(raw.tasks?.active) ? raw.tasks.active : [],
+    },
+    buildState: {
+      placedStructures: Array.isArray(raw.buildState?.placedStructures)
+        ? raw.buildState.placedStructures
+        : base.buildState.placedStructures,
     },
     history: Array.isArray(raw.history) ? raw.history : base.history,
     tileEvents: Array.isArray(raw.tileEvents) ? raw.tileEvents : base.tileEvents,
@@ -339,6 +356,7 @@ const GameStateContext = createContext<
     craft: (recipeId: string) => boolean;
     useItem: (itemId: string) => boolean;
     claimDailyDrop: () => boolean;
+    placeStructure: (itemId: string) => boolean;
     registerTaskTemplates: (templates: Record<string, TaskTemplate>) => void;
     spawnTaskInstance: (
       templateId: string,
@@ -567,6 +585,35 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
         resources: mergeResourceChanges(prev.resources, resourceChanges),
         inventory: mergeInventoryChanges(prev.inventory, itemChanges),
         dailyDrop: prev.dailyDrop ? { ...prev.dailyDrop, claimed: true } : prev.dailyDrop,
+        history: pushHistoryEntry(entry, prev.history),
+      };
+    });
+    return true;
+  }, []);
+
+  const placeStructure = useCallback((itemId: string) => {
+    const current = stateRef.current;
+    if (!current || !itemId) return false;
+    const currentCount = current.inventory[itemId] || 0;
+    if (currentCount <= 0) return false;
+    const structureId = newId();
+    const atDay = current.worldTime.currentDay;
+    setState((prev) => {
+      const entry = buildHistoryEntry("build_place", {
+        itemId,
+        atDay,
+        structureId,
+      });
+      return {
+        ...prev,
+        inventory: mergeInventoryChanges(prev.inventory, { [itemId]: -1 }),
+        buildState: {
+          ...prev.buildState,
+          placedStructures: [
+            ...(prev.buildState?.placedStructures || []),
+            { id: structureId, itemId, atDay },
+          ],
+        },
         history: pushHistoryEntry(entry, prev.history),
       };
     });
@@ -940,6 +987,7 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       craft,
       useItem,
       claimDailyDrop,
+      placeStructure,
       registerTaskTemplates,
       spawnTaskInstance,
       movePlayer,
@@ -962,6 +1010,7 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       craft,
       useItem,
       claimDailyDrop,
+      placeStructure,
       registerTaskTemplates,
       spawnTaskInstance,
       movePlayer,
