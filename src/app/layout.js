@@ -1,28 +1,23 @@
 import "./globals.css";
-import TopNavigation from "@/components/TopNavigation";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { WorldProvider } from "./worldState";
-import { GameStateProvider } from "@/state/GameStateContext";
 
 export const metadata = {
-  title: "LifeUP · 游戏人生",
-  description: "LifeUP SE 自我激励系统",
+  title: "LifeUP · 调试版",
+  description: "临时调试：先保证能正常打开页面",
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="zh-CN">
-      <body className="bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-slate-100">
-        <ErrorBoundary>
-          <WorldProvider>
-            <GameStateProvider>
-              <TopNavigation />
-              <main className="max-w-5xl mx-auto px-4 py-6 pb-16 pt-20">
-                {children}
-              </main>
-            </GameStateProvider>
-          </WorldProvider>
-        </ErrorBoundary>
+      <body
+        style={{
+          margin: 0,
+          padding: 0,
+          background: "#050608",
+          color: "#f5f5f5",
+          fontFamily: "system-ui, sans-serif",
+        }}
+      >
+        {children}
       </body>
     </html>
   );
