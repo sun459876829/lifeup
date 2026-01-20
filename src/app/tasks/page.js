@@ -74,10 +74,20 @@ function buildRewardPreview(template) {
 
 export default function TasksPage() {
   const gameState = useGameState();
-  const { hydrated, tasks, spawnTaskInstance, completeTaskInstance, pushHistory, taskStreaks } =
-    gameState;
+  const {
+    hydrated,
+    tasks,
+    spawnTaskInstance,
+    completeTaskInstance,
+    pushHistory,
+    taskStreaks,
+    board,
+    player,
+    npc,
+  } = gameState;
   const [message, setMessage] = useState("");
   const [batchSuggestion, setBatchSuggestion] = useState(null);
+  const [diceFeedback, setDiceFeedback] = useState(null);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -137,6 +147,16 @@ export default function TasksPage() {
       `✨ 完成「${template.title}」：+${reward?.coins || 0} 金币，+${reward?.exp || 0} EXP${dropText}`
     );
     setTimeout(() => setMessage(""), 3000);
+
+    if (typeof result.diceValue === "number") {
+      setDiceFeedback({
+        title: template.title,
+        diceValue: result.diceValue,
+        boardSteps: result.boardSteps,
+        playerPosition: result.playerPosition,
+        playerLaps: result.playerLaps,
+      });
+    }
 
     const suggestion = getBatchSuggestion(template.id, tasks.templates, gameState);
     if (suggestion) {
@@ -215,6 +235,45 @@ export default function TasksPage() {
           {message}
         </div>
       )}
+
+      {diceFeedback && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-950/95 p-6 shadow-xl">
+            <div className="text-sm text-slate-400">任务完成回合</div>
+            <div className="mt-1 text-lg font-semibold text-slate-100">
+              你完成了任务「{diceFeedback.title}」
+            </div>
+            <div className="mt-3 space-y-2 text-sm text-slate-200">
+              <div>
+                掷出了 🎲 {diceFeedback.diceValue} 点，前进了 {diceFeedback.boardSteps} 步
+              </div>
+              <div>
+                你现在走到：
+                {board?.tiles?.[diceFeedback.playerPosition ?? 0]?.name || "未知区域"}（第{" "}
+                {(diceFeedback.playerLaps ?? 0) + 1} 圈）
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDiceFeedback(null)}
+              className="mt-5 w-full rounded-lg bg-emerald-500/80 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+            >
+              知道了
+            </button>
+          </div>
+        </div>
+      )}
+
+      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-200">
+        <div className="flex flex-wrap gap-4">
+          <div>
+            你：第 {(player?.laps ?? 0) + 1} 圈，第 {(player?.position ?? 0) + 1} 格
+          </div>
+          <div>
+            影子旅伴：第 {(npc?.laps ?? 0) + 1} 圈，第 {(npc?.position ?? 0) + 1} 格
+          </div>
+        </div>
+      </section>
 
       {batchSuggestion && (
         <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-3">
