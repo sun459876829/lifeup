@@ -17,6 +17,7 @@ import {
 import { DEFAULT_UI_SETTINGS, loadUiSettings, saveUiSettings } from "@/lib/uiSettings";
 import { ECONOMY_SETTINGS_KEY, DEFAULT_COINS_PER_YUAN } from "@/game/config/economy";
 import { HISTORY_STORAGE_KEY } from "@/game/history";
+import { safeLoad, safeSave } from "@/lib/storage";
 
 export default function SettingsPage() {
   const { now, todayKey, dayIndex, refreshTime, settings, updateCoinsPerYuan } = useWorld();
@@ -32,7 +33,7 @@ export default function SettingsPage() {
     setGameStartDateState(getGameStartDate());
     setGameDayKeyState(getGameDayKey());
     setUiSettings(loadUiSettings());
-    setDevMode(localStorage.getItem("devMode") === "true");
+    setDevMode(safeLoad("devMode", "false", (raw) => raw) === "true");
   }, []);
 
   useEffect(() => {
@@ -91,7 +92,7 @@ export default function SettingsPage() {
       version: 1,
       exportedAt: Date.now(),
       data: keys.reduce((acc, key) => {
-        acc[key] = localStorage.getItem(key);
+        acc[key] = safeLoad(key, null, (raw) => raw);
         return acc;
       }, {}),
     };
@@ -121,7 +122,7 @@ export default function SettingsPage() {
         if (!confirmed) return;
         Object.entries(parsed.data).forEach(([key, value]) => {
           if (typeof value === "string") {
-            localStorage.setItem(key, value);
+            safeSave(key, value);
           } else if (value === null) {
             localStorage.removeItem(key);
           }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { safeLoad, safeSave } from "@/lib/storage";
 
 const STORAGE_KEY = "lifeup.focusTimer.v1";
 const DEFAULT_TOTAL_SECONDS = 25 * 60;
@@ -46,25 +47,14 @@ export default function FocusTimer() {
   const intervalRef = useRef(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setTimer(hydrateTimerState(parsed));
-      }
-    } catch (error) {
-      console.error("Failed to load focus timer", error);
+    const stored = safeLoad(STORAGE_KEY, null);
+    if (stored) {
+      setTimer(hydrateTimerState(stored));
     }
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(timer));
-    } catch (error) {
-      console.error("Failed to save focus timer", error);
-    }
+    safeSave(STORAGE_KEY, timer);
   }, [timer]);
 
   useEffect(() => {

@@ -1,3 +1,5 @@
+import { safeLoad, safeSave } from "./storage";
+
 const UI_SETTINGS_KEY = "lifeup.uiSettings.v1";
 
 const DEFAULT_UI_SETTINGS = {
@@ -6,25 +8,14 @@ const DEFAULT_UI_SETTINGS = {
 };
 
 export function loadUiSettings() {
-  if (typeof window === "undefined") return { ...DEFAULT_UI_SETTINGS };
-  try {
-    const stored = localStorage.getItem(UI_SETTINGS_KEY);
-    if (!stored) return { ...DEFAULT_UI_SETTINGS };
-    const parsed = JSON.parse(stored);
+  return safeLoad(UI_SETTINGS_KEY, { ...DEFAULT_UI_SETTINGS }, (raw) => {
+    const parsed = JSON.parse(raw);
     return { ...DEFAULT_UI_SETTINGS, ...(parsed || {}) };
-  } catch (error) {
-    console.error("Failed to load UI settings", error);
-    return { ...DEFAULT_UI_SETTINGS };
-  }
+  });
 }
 
 export function saveUiSettings(settings) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(UI_SETTINGS_KEY, JSON.stringify(settings));
-  } catch (error) {
-    console.error("Failed to save UI settings", error);
-  }
+  safeSave(UI_SETTINGS_KEY, settings);
 }
 
 export { DEFAULT_UI_SETTINGS, UI_SETTINGS_KEY };
