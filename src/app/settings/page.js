@@ -3,19 +3,33 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useWorld } from "../worldState";
+import { useGameState } from "@/state/GameStateContext";
 import { formatDateTime } from "@/components/WorldClock";
 import { getGameStartDate, getNow, setGameStartDate } from "@/game/time";
 import { DEFAULT_UI_SETTINGS, loadUiSettings, saveUiSettings } from "@/lib/uiSettings";
 
 export default function SettingsPage() {
   const { now, todayKey, dayIndex, refreshTime } = useWorld();
+  const { addCoins, advanceWorldDay, movePlayer } = useGameState();
   const [gameStartDate, setGameStartDateState] = useState(null);
   const [uiSettings, setUiSettings] = useState(DEFAULT_UI_SETTINGS);
   const [notice, setNotice] = useState("");
+  const [devMode, setDevMode] = useState(false);
 
   useEffect(() => {
     setGameStartDateState(getGameStartDate());
     setUiSettings(loadUiSettings());
+    setDevMode(localStorage.getItem("devMode") === "true");
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = (event) => {
+      if (event.key === "devMode") {
+        setDevMode(event.newValue === "true");
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
   function handleResetStartDate() {
@@ -34,6 +48,13 @@ export default function SettingsPage() {
       saveUiSettings(next);
       return next;
     });
+  }
+
+  function resetAll() {
+    const confirmed = window.confirm("确定要清空所有本地数据吗？此操作不可撤销。");
+    if (!confirmed) return;
+    localStorage.clear();
+    window.location.reload();
   }
 
   return (
@@ -128,6 +149,54 @@ export default function SettingsPage() {
           </label>
         </div>
       </section>
+
+      {devMode && (
+        <section className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-6 space-y-4 shadow-lg shadow-rose-950/30">
+          <div>
+            <h2 className="text-sm font-medium text-rose-100">🧪 开发者测试区</h2>
+            <p className="text-xs text-rose-200/80 mt-1">
+              仅 devMode=true 时显示，用于测试大富翁与建造逻辑。
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+            <button
+              type="button"
+              onClick={() => addCoins(100, "dev_tool")}
+              className="rounded-lg border border-rose-300/40 bg-rose-500/20 px-3 py-2 text-rose-100 hover:bg-rose-500/30 transition"
+            >
+              +100 金币
+            </button>
+            <button
+              type="button"
+              onClick={() => addCoins(500, "dev_tool")}
+              className="rounded-lg border border-rose-300/40 bg-rose-500/20 px-3 py-2 text-rose-100 hover:bg-rose-500/30 transition"
+            >
+              +500 金币
+            </button>
+            <button
+              type="button"
+              onClick={() => advanceWorldDay()}
+              className="rounded-lg border border-rose-300/40 bg-rose-500/20 px-3 py-2 text-rose-100 hover:bg-rose-500/30 transition"
+            >
+              推进到下一天（测试用）
+            </button>
+            <button
+              type="button"
+              onClick={() => movePlayer(5)}
+              className="rounded-lg border border-rose-300/40 bg-rose-500/20 px-3 py-2 text-rose-100 hover:bg-rose-500/30 transition"
+            >
+              移动我前进 5 格（测试）
+            </button>
+            <button
+              type="button"
+              onClick={resetAll}
+              className="rounded-lg border border-rose-300/50 bg-rose-500/30 px-3 py-2 text-rose-50 hover:bg-rose-500/40 transition md:col-span-2"
+            >
+              重置全部数据（清空 localStorage）
+            </button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

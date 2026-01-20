@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useGameState } from "@/state/GameStateContext";
 import { CRAFTING_RECIPES } from "@/game/config/craftingConfig";
@@ -11,6 +12,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   food: "小吃券 / 消费券",
   buff: "Buff 类道具",
   upgrade: "升级道具",
+  structure: "营地建造",
 };
 
 const RESOURCE_ICONS: Record<string, string> = {
@@ -29,10 +31,31 @@ function formatItemLabel(itemId: string) {
 }
 
 export default function CraftPage() {
-  const { hydrated, resources, coins, canCraft, craft } = useGameState();
+  const {
+    hydrated,
+    resources,
+    coins,
+    canCraft,
+    craft,
+    inventory,
+    buildState,
+    placeStructure,
+  } = useGameState();
   const [message, setMessage] = useState("");
+  const [buildMessage, setBuildMessage] = useState("");
 
   const recipes = useMemo(() => Object.values(CRAFTING_RECIPES), []);
+  const structureItems = useMemo(
+    () => Object.values(ITEMS).filter((item) => item.category === "structure"),
+    []
+  );
+  const placedSummary = useMemo(() => {
+    const list = buildState?.placedStructures || [];
+    return list.reduce<Record<string, number>>((acc, item) => {
+      acc[item.itemId] = (acc[item.itemId] || 0) + 1;
+      return acc;
+    }, {});
+  }, [buildState]);
   const groupedRecipes = useMemo(() => {
     return recipes.reduce<Record<string, typeof recipes>>((acc, recipe) => {
       const key = recipe.category || "other";
@@ -73,6 +96,17 @@ export default function CraftPage() {
     setTimeout(() => setMessage(""), 2500);
   }
 
+  function handlePlaceStructure(itemId: string) {
+    const ok = placeStructure(itemId);
+    if (!ok) {
+      setBuildMessage("库存不足，暂时无法摆放。");
+      setTimeout(() => setBuildMessage(""), 2000);
+      return;
+    }
+    setBuildMessage(`🏕️ 已摆放 ${formatItemLabel(itemId)}，营地更温暖了。`);
+    setTimeout(() => setBuildMessage(""), 2500);
+  }
+
   function hasEnoughResources(recipeId: string) {
     const recipe = CRAFTING_RECIPES[recipeId];
     return Object.entries(recipe?.costs || {}).every(([id, amount]) => {
@@ -103,6 +137,67 @@ export default function CraftPage() {
           {message}
         </div>
       )}
+
+      <section className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-4 shadow-lg shadow-slate-950/30">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium text-slate-100">🏕️ 营地布置</div>
+            <div className="text-xs text-slate-500 mt-1">摆放建造物会消耗 1 个对应物品。</div>
+          </div>
+          <Link
+            href="/inventory"
+            className="text-xs text-violet-300 hover:text-violet-200 transition"
+          >
+            查看背包 →
+          </Link>
+        </div>
+        {buildMessage && (
+          <div className="rounded-lg bg-violet-500/20 border border-violet-500/40 p-3 text-sm text-violet-100">
+            {buildMessage}
+          </div>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {structureItems.map((item) => {
+            const count = inventory?.[item.id] || 0;
+            const placedCount = placedSummary[item.id] || 0;
+            return (
+              <div
+                key={item.id}
+                className={`rounded-xl border p-4 space-y-2 ${
+                  count > 0
+                    ? "border-slate-700 bg-slate-950/60"
+                    : "border-slate-800 bg-slate-900/40 opacity-70"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm text-slate-200">
+                      {item.icon} {item.name}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-1">{item.description}</div>
+                  </div>
+                  <div className="text-xs text-slate-400 text-right">
+                    <div>库存 x{count}</div>
+                    <div className="text-emerald-300">已摆放 x{placedCount}</div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handlePlaceStructure(item.id)}
+                  disabled={count <= 0}
+                  className={`w-full rounded-lg px-3 py-2 text-xs font-medium transition ${
+                    count > 0
+                      ? "bg-emerald-500/80 hover:bg-emerald-500 text-white"
+                      : "bg-slate-800 text-slate-500 cursor-not-allowed"
+                  }`}
+                >
+                  建造 / 摆放
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
       <section className="space-y-6">
         {categories.map((category) => (
