@@ -18,7 +18,42 @@ const DEFAULT_RESOURCES = Object.keys(RESOURCES).reduce<Record<string, number>>(
   return acc;
 }, {});
 
-const DEFAULT_STATE = {
+type DailyDropReward = {
+  coins?: number;
+  resources?: Record<string, number>;
+};
+
+type DailyDropState = {
+  dayKey: string;
+  claimed: boolean;
+  reward: DailyDropReward;
+};
+
+type GameState = {
+  coins: number;
+  exp: number;
+  resources: Record<string, number>;
+  inventory: Record<string, number>;
+  tasks: {
+    templates: Record<string, any>;
+    active: Array<any>;
+  };
+  taskStreaks: Record<string, any>;
+  board: { tiles: typeof BOARD_TILES };
+  player: { position: number; laps: number };
+  npc: { position: number; laps: number };
+  tileEvents: Array<any>;
+  dailyDrop: DailyDropState;
+  worldTime: {
+    currentDay: number;
+    lastAdvanceAt: number | null;
+    gameDayKey: string;
+  };
+  buildState: { placedStructures: Array<{ itemId?: string; placedAt?: number }> };
+  history: Array<any>;
+};
+
+const DEFAULT_STATE: GameState = {
   coins: 0,
   exp: 0,
   resources: { ...DEFAULT_RESOURCES },
@@ -45,8 +80,6 @@ const DEFAULT_STATE = {
   buildState: { placedStructures: [] },
   history: [],
 };
-
-type GameState = typeof DEFAULT_STATE;
 
 type GameStateContextValue = {
   hydrated: boolean;
