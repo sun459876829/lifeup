@@ -14,6 +14,7 @@ import { BOARD_TILES, type BoardTile } from "@/game/config/boardConfig";
 import { RESOURCES } from "@/game/config/resources";
 import { TASK_TEMPLATES } from "@/game/config/tasksConfig";
 import { CRAFTING_RECIPES } from "@/game/config/craftingConfig";
+import { rollDice } from "@/game/engine/diceEngine";
 import { loadHistory, pushHistory as pushHistoryEntry } from "@/game/history";
 
 export type TaskDifficulty = "tiny" | "small" | "medium" | "large" | "huge";
@@ -329,7 +330,16 @@ const GameStateContext = createContext<
     completeTaskInstance: (
       instanceId: string,
       options?: { actualMinutes?: number }
-    ) => { ok: boolean; reward?: ReturnType<typeof computeReward> };
+    ) => {
+      ok: boolean;
+      reward?: ReturnType<typeof computeReward>;
+      diceValue?: number;
+      boardSteps?: number;
+      playerPosition?: number;
+      playerLaps?: number;
+      npcPosition?: number;
+      npcLaps?: number;
+    };
     advanceWorldDay: () => void;
     pushHistory: (entry: HistoryEntry) => void;
     addParkedIdea: (text: string) => ParkedIdea | null;
@@ -746,14 +756,16 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       const streakMultiplier = nextCount >= 3 ? 1.2 : 1;
       const batchMultiplier = instance.bonusMultiplier ?? 1;
       const rewardMultiplier = streakMultiplier * batchMultiplier;
-      const boardSteps =
-        template.difficulty === "tiny" || template.difficulty === "small"
-          ? 1
-          : template.difficulty === "medium"
-            ? 2
-            : template.difficulty === "large"
-              ? 3
-              : 4;
+      const suggestionRange: Record<TaskDifficulty, [number, number]> = {
+        tiny: [1, 2],
+        small: [1, 2],
+        medium: [2, 3],
+        large: [3, 4],
+        huge: [4, 6],
+      };
+      const [minSuggestion, maxSuggestion] = suggestionRange[template.difficulty];
+      const diceValue = rollDice().value;
+      const boardSteps = Math.min(maxSuggestion, Math.max(minSuggestion, diceValue));
 
       const reward = {
         ...baseReward,
@@ -769,6 +781,20 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
         {}
       );
 
+      const tileCount = current.board.tiles.length;
+      const resolveMove = (position: number, laps: number, steps: number) => {
+        if (!tileCount) {
+          return { position, laps };
+        }
+        const target = position + steps;
+        const nextPosition = ((target % tileCount) + tileCount) % tileCount;
+        const nextLaps = target >= tileCount ? laps + 1 : laps;
+        return { position: nextPosition, laps: nextLaps };
+      };
+      const nextPlayer = resolveMove(current.player.position, current.player.laps, boardSteps);
+      const npcSteps = randomInt(1, 2);
+      const nextNpc = resolveMove(current.npc.position, current.npc.laps, npcSteps);
+
       setState((prev) => {
         const entry = buildHistoryEntry("task_complete", {
           instanceId,
@@ -781,6 +807,7 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
           rewardMultiplier,
           streak: nextStreak,
           bonusMultiplier: batchMultiplier,
+          diceValue,
           boardSteps,
         });
         const updatedActive = template.repeatable
@@ -813,10 +840,20 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
       addExp(reward.exp, "task_complete");
       addResources(resourceChanges, "task_complete");
       movePlayer(boardSteps);
+      moveNpc(npcSteps);
 
-      return { ok: true, reward };
+      return {
+        ok: true,
+        reward,
+        diceValue,
+        boardSteps,
+        playerPosition: nextPlayer.position,
+        playerLaps: nextPlayer.laps,
+        npcPosition: nextNpc.position,
+        npcLaps: nextNpc.laps,
+      };
     },
-    [addCoins, addExp, addResources, movePlayer]
+    [addCoins, addExp, addResources, moveNpc, movePlayer]
   );
 
   const advanceWorldDay = useCallback(() => {

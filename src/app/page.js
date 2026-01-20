@@ -267,17 +267,22 @@ export default function Page() {
                     : "打捞漂流物"
                   : "尚未刷新"}
             </button>
-            <button
-              onClick={handleAdvanceWorldDay}
-              aria-disabled={!canAdvanceWorld}
-              className={`rounded-lg border px-4 py-2 text-sm transition ${
-                canAdvanceWorld
-                  ? "border-slate-700 bg-slate-900/70 text-slate-200 hover:border-violet-400 hover:text-violet-200"
-                  : "border-slate-800 bg-slate-900/40 text-slate-500 cursor-not-allowed"
-              }`}
-            >
-              推进到下一天
-            </button>
+            <div className="flex flex-col items-end text-xs text-slate-500">
+              <button
+                onClick={handleAdvanceWorldDay}
+                aria-disabled={!canAdvanceWorld}
+                className={`rounded-lg border px-3 py-1.5 text-xs transition ${
+                  canAdvanceWorld
+                    ? "border-slate-800 bg-slate-900/50 text-slate-400 hover:border-slate-600 hover:text-slate-200"
+                    : "border-slate-800 bg-slate-900/40 text-slate-600 cursor-not-allowed"
+                }`}
+              >
+                推进到下一天
+              </button>
+              <span className="mt-1">
+                多数情况只需完成任务推进棋子，无需频繁手动推进。
+              </span>
+            </div>
           </div>
         </div>
         {survivalHydrated && dailyDrop ? (
