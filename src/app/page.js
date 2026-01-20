@@ -6,7 +6,7 @@ import WorldClock from "@/components/WorldClock";
 import FocusTimer from "@/components/FocusTimer";
 import { useWorld } from "./worldState";
 import { useGameState } from "@/state/GameStateContext";
-import { COIN_TO_RMB, STAT_LIMITS } from "../game/config";
+import { STAT_LIMITS } from "../game/config";
 import { DEFAULT_UI_SETTINGS, loadUiSettings, UI_SETTINGS_KEY } from "../lib/uiSettings";
 import { resolveDifficultyValue } from "../lib/loadTasks";
 import { RESOURCES } from "@/game/config/resources";
@@ -65,6 +65,9 @@ export default function Page() {
     history,
     undoLastAction,
     taskConfig,
+    attributes,
+    achievements,
+    settings,
   } = useWorld();
   const {
     hydrated: survivalHydrated,
@@ -84,7 +87,7 @@ export default function Page() {
   } = useGameState();
   const [message, setMessage] = useState("");
   const [uiSettings, setUiSettings] = useState(DEFAULT_UI_SETTINGS);
-  const coinRmb = (currency.coins * COIN_TO_RMB).toFixed(1);
+  const coinRmb = (currency.coins / (settings?.coinsPerYuan || 10)).toFixed(1);
 
   useEffect(() => {
     setUiSettings(loadUiSettings());
@@ -103,6 +106,12 @@ export default function Page() {
       .sort((a, b) => (b.timestamp || b.createdAt || 0) - (a.timestamp || a.createdAt || 0))
       .slice(0, 5);
   }, [history]);
+
+  const highlightAchievements = useMemo(() => {
+    const unlocked = achievements.filter((item) => item.unlocked);
+    if (unlocked.length > 0) return unlocked.slice(0, 2);
+    return achievements.slice(0, 2);
+  }, [achievements]);
 
   const recentTileEvents = useMemo(() => {
     const list = Array.isArray(tileEvents) ? tileEvents : [];
@@ -314,6 +323,53 @@ export default function Page() {
               <div className="text-xs text-slate-500 mt-2">今天还没有事件，晚点刷新看看。</div>
             )}
           </div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4 shadow-lg shadow-slate-950/30">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium text-slate-100">🧬 属性概览</div>
+            <Link
+              href="/attributes"
+              className="text-xs text-violet-300 hover:text-violet-200 transition"
+            >
+              查看详情 →
+            </Link>
+          </div>
+          <div className="space-y-2">
+            {attributes.map((attr) => (
+              <div key={attr.id} className="flex items-center justify-between text-xs text-slate-300">
+                <span>
+                  {attr.icon || "✨"} {attr.name}
+                </span>
+                <span className="text-emerald-300">Lv.{attr.level}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4 shadow-lg shadow-slate-950/30">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium text-slate-100">🏆 成就亮点</div>
+            <Link
+              href="/achievements"
+              className="text-xs text-violet-300 hover:text-violet-200 transition"
+            >
+              查看全部 →
+            </Link>
+          </div>
+          {highlightAchievements.length === 0 ? (
+            <div className="text-xs text-slate-500">还没有解锁成就，继续前进吧。</div>
+          ) : (
+            <div className="space-y-2">
+              {highlightAchievements.map((item) => (
+                <div key={item.id} className="text-xs text-slate-300">
+                  {item.icon || "✨"} {item.name}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 

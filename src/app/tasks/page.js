@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useGameState } from "@/state/GameStateContext";
+import { useWorld } from "../worldState";
 import { computeReward, estimateRewardRange } from "@/game/config/rewards";
 import { RESOURCES } from "@/game/config/resources";
 import { ITEMS } from "@/game/config/items";
@@ -102,6 +103,15 @@ function buildRewardPreview(template) {
 export default function TasksPage() {
   const gameState = useGameState();
   const {
+    hydrated: coreHydrated,
+    tasks: coreTasks,
+    registerTask,
+    completeTask,
+    addNote,
+    addBatchPlan,
+    dailyBatchPlan,
+  } = useWorld();
+  const {
     hydrated,
     tasks,
     spawnTaskInstance,
@@ -116,6 +126,9 @@ export default function TasksPage() {
   const [batchSuggestion, setBatchSuggestion] = useState(null);
   const [diceFeedback, setDiceFeedback] = useState(null);
   const [now, setNow] = useState(Date.now());
+  const [quickTitle, setQuickTitle] = useState("");
+  const [randomPick, setRandomPick] = useState(null);
+  const [batchMode, setBatchMode] = useState("category");
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -146,6 +159,32 @@ export default function TasksPage() {
     () => tasks.active.filter((task) => task.status === "done"),
     [tasks.active]
   );
+
+  const coreTodoTasks = useMemo(
+    () => (coreTasks || []).filter((task) => task.status !== "done"),
+    [coreTasks]
+  );
+
+  const coreDoneTasks = useMemo(
+    () => (coreTasks || []).filter((task) => task.status === "done"),
+    [coreTasks]
+  );
+
+  const batchGroups = useMemo(() => {
+    const groups = {};
+    coreTodoTasks.forEach((task) => {
+      let key = task.category || "其他";
+      if (batchMode === "priority") {
+        key = task.priority || "FAST";
+      }
+      if (batchMode === "tag") {
+        key = (task.tags && task.tags[0]) || "无标签";
+      }
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(task);
+    });
+    return groups;
+  }, [coreTodoTasks, batchMode]);
 
   function handleAccept(template, options) {
     const instance = spawnTaskInstance(template.id, options);
@@ -217,6 +256,58 @@ export default function TasksPage() {
     setBatchSuggestion(null);
   }
 
+  function handleQuickAdd() {
+    const title = quickTitle.trim();
+    if (!title) return;
+    const created = registerTask({ title, isRepeatable: false, isUserCreated: true });
+    if (created) {
+      setQuickTitle("");
+      setMessage(`✅ 已加入任务：「${created.title}」`);
+      setTimeout(() => setMessage(""), 2000);
+    }
+  }
+
+  function handleRandomTask() {
+    const fastSmall = coreTodoTasks.filter(
+      (task) => task.size === "SMALL" && task.priority === "FAST"
+    );
+    const source = fastSmall.length > 0 ? fastSmall : coreTodoTasks;
+    if (source.length === 0) {
+      setRandomPick(null);
+      setMessage("暂无待办任务，可以去添加一个小目标。");
+      setTimeout(() => setMessage(""), 2000);
+      return;
+    }
+    const pick = source[Math.floor(Math.random() * source.length)];
+    setRandomPick(pick);
+  }
+
+  function handleCompleteCoreTask(task) {
+    const result = completeTask(task.id);
+    if (!result?.ok) {
+      setMessage(result?.message || "完成失败，请稍后重试。");
+      setTimeout(() => setMessage(""), 2000);
+      return;
+    }
+    setMessage(`✨ 完成「${task.title}」，奖励 +${result.rewardCoins || 0} 金币`);
+    setTimeout(() => setMessage(""), 2000);
+    const reflection = window.prompt("完成感想（可选）", "");
+    if (reflection && task?.id) {
+      addNote(reflection, { kind: "REFLECTION", relatedTaskId: task.id });
+    }
+  }
+
+  function handleAddBatchPlan(groupKey, tasksInGroup) {
+    addBatchPlan({
+      groupKey,
+      taskIds: tasksInGroup.map((task) => task.id),
+      count: tasksInGroup.length,
+      mode: batchMode,
+    });
+    setMessage("📦 已加入今日批量计划。");
+    setTimeout(() => setMessage(""), 2000);
+  }
+
   function handleBatchDismiss() {
     setBatchSuggestion(null);
   }
@@ -263,6 +354,151 @@ export default function TasksPage() {
           {message}
         </div>
       )}
+
+      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-medium text-slate-100">🌱 成长任务清单</h2>
+            <p className="text-xs text-slate-500 mt-1">
+              一键新增、自动分类，适合 ADHD 的低门槛启动模式。
+            </p>
+          </div>
+          <div className="text-xs text-slate-400">核心系统 · LifeUP Lite</div>
+        </div>
+
+        {!coreHydrated ? (
+          <div className="text-sm text-slate-500">正在加载成长任务…</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex flex-col md:flex-row gap-3">
+              <input
+                value={quickTitle}
+                onChange={(event) => setQuickTitle(event.target.value)}
+                placeholder="输入任务标题，例如：整理桌面"
+                className="flex-1 rounded-lg border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+              />
+              <button
+                type="button"
+                onClick={handleQuickAdd}
+                className="rounded-lg bg-emerald-500/80 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2"
+              >
+                一键加入
+              </button>
+              <button
+                type="button"
+                onClick={handleRandomTask}
+                className="rounded-lg border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 hover:text-emerald-200"
+              >
+                给我一个随机小任务
+              </button>
+            </div>
+
+            {randomPick && (
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+                🎯 今日推荐：{randomPick.title}（{randomPick.category} · {randomPick.priority || "FAST"}）
+              </div>
+            )}
+
+            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs text-slate-400">批量视图</div>
+                <select
+                  value={batchMode}
+                  onChange={(event) => setBatchMode(event.target.value)}
+                  className="rounded-lg border border-slate-700 bg-slate-950/60 px-2 py-1 text-xs text-slate-200"
+                >
+                  <option value="category">按分类</option>
+                  <option value="priority">按优先级</option>
+                  <option value="tag">按标签</option>
+                </select>
+              </div>
+              {Object.keys(batchGroups).length === 0 ? (
+                <div className="text-xs text-slate-500">暂无待办任务。</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {Object.entries(batchGroups).map(([groupKey, list]) => (
+                    <div
+                      key={groupKey}
+                      className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 space-y-2"
+                    >
+                      <div className="flex items-center justify-between text-xs text-slate-300">
+                        <span>{groupKey}</span>
+                        <span>{list.length} 项</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1 text-[11px] text-slate-400">
+                        {list.slice(0, 5).map((task) => (
+                          <span key={task.id} className="rounded-full border border-slate-700 px-2 py-0.5">
+                            {task.title}
+                          </span>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleAddBatchPlan(groupKey, list)}
+                        className="w-full rounded-lg bg-emerald-500/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+                      >
+                        加入今日批量计划
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {dailyBatchPlan && (
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs text-emerald-100">
+                今日批量计划：{dailyBatchPlan.groupKey} · {dailyBatchPlan.count} 项
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <div className="text-xs text-slate-400">待办任务</div>
+              {coreTodoTasks.length === 0 ? (
+                <div className="text-sm text-slate-500">暂无待办任务。</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {coreTodoTasks.map((task) => (
+                    <div
+                      key={task.id}
+                      className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 space-y-2"
+                    >
+                      <div className="text-sm text-slate-200">{task.title}</div>
+                      <div className="text-xs text-slate-500">
+                        {task.category} · {task.priority || "FAST"} · {task.size || "SMALL"}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCompleteCoreTask(task)}
+                        className="w-full rounded-lg bg-emerald-500/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+                      >
+                        完成任务
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs text-slate-400">已完成</div>
+              {coreDoneTasks.length === 0 ? (
+                <div className="text-sm text-slate-500">还没有完成记录。</div>
+              ) : (
+                <div className="flex flex-wrap gap-2 text-xs text-slate-400">
+                  {coreDoneTasks.slice(0, 8).map((task) => (
+                    <span
+                      key={task.id}
+                      className="rounded-full border border-slate-700 bg-slate-900/60 px-2 py-0.5"
+                    >
+                      {task.title}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
 
       {diceFeedback && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">

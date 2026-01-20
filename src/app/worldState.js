@@ -5,6 +5,12 @@ import { RANDOM_EVENTS } from "./gameConfig/randomEventsConfig";
 import { ACHIEVEMENTS_CONFIG } from "./gameConfig/achievementsConfig";
 import { getSanityGain, resolveTaskKind, STAT_LIMITS } from "../game/config";
 import {
+  BASE_COINS_PER_HOUR,
+  DEFAULT_COINS_PER_YUAN,
+  loadCoinsPerYuan,
+  saveCoinsPerYuan,
+} from "../game/config/economy";
+import {
   computeRewards,
   loadAllTasks,
   normalizeTaskPriority,
@@ -44,6 +50,46 @@ const DEFAULT_BURST = {
   comboCount: 0,
 };
 
+const DEFAULT_SETTINGS = {
+  coinsPerYuan: DEFAULT_COINS_PER_YUAN,
+};
+
+const ATTRIBUTE_LEVEL_BASE = 100;
+const ATTRIBUTE_LEVEL_GROWTH = 1.3;
+
+const DEFAULT_ATTRIBUTES = [
+  {
+    id: "mind",
+    name: "认知",
+    description: "学习、看课、思考与输出。",
+    icon: "🧠",
+  },
+  {
+    id: "body",
+    name: "体力",
+    description: "健康、清理、走路与运动。",
+    icon: "💪",
+  },
+  {
+    id: "charm",
+    name: "魅力",
+    description: "形象、社交、舞台表现。",
+    icon: "✨",
+  },
+  {
+    id: "wealth",
+    name: "财富",
+    description: "工作、赚钱与项目推进。",
+    icon: "💰",
+  },
+  {
+    id: "order",
+    name: "秩序",
+    description: "收纳、计划与财务整理。",
+    icon: "📚",
+  },
+];
+
 const TASK_CONFIG = loadAllTasks();
 
 function newId() {
@@ -75,18 +121,39 @@ function normalizeBurst(burst) {
   };
 }
 
+function resolveAchievementId(template) {
+  return template?.id || template?.key;
+}
+
+function buildDefaultAttributes() {
+  const now = Date.now();
+  return DEFAULT_ATTRIBUTES.map((attr) => ({
+    ...attr,
+    level: 1,
+    exp: 0,
+    expToNext: ATTRIBUTE_LEVEL_BASE,
+    createdAt: now,
+    updatedAt: now,
+  }));
+}
+
 function initializeAchievements(existing = []) {
-  const existingMap = new Map(existing.map((item) => [item.key, item]));
+  const existingMap = new Map(existing.map((item) => [item.id || item.key, item]));
   return ACHIEVEMENTS_CONFIG.map((template) => {
-    const prior = existingMap.get(template.key);
+    const templateId = resolveAchievementId(template);
+    const prior = existingMap.get(templateId);
     return {
-      key: template.key,
+      id: templateId,
       name: template.name,
       description: template.description,
+      icon: template.icon,
+      type: template.type,
+      condition: template.condition,
       target: template.target,
       progress: prior?.progress ?? 0,
       unlocked: prior?.unlocked ?? false,
       unlockedAt: prior?.unlockedAt,
+      timesUnlocked: prior?.timesUnlocked ?? 0,
     };
   });
 }
@@ -101,11 +168,12 @@ function normalizeStats(stats = {}) {
 
 function normalizeTaskMeta(task) {
   const difficultyKey = computeRewards(task?.difficulty).difficultyKey;
+  const categoryKey = task?.categoryKey || task?.category;
   return {
     minutes: Number(task.minutes) || 10,
     difficulty: difficultyKey,
     difficultyValue: resolveDifficultyValue(difficultyKey),
-    kind: resolveTaskKind(task.category, task.kind),
+    kind: resolveTaskKind(categoryKey, task.kind),
   };
 }
 
@@ -117,6 +185,175 @@ function normalizeTaskStreakState(task) {
   };
 }
 
+const TASK_CATEGORY_KEYWORDS = [
+  { category: "认知", keywords: ["课", "学习", "阅读", "笔记", "复盘", "课程", "思考"] },
+  { category: "清理", keywords: ["收拾", "整理", "垃圾", "清理", "打扫", "洗衣"] },
+  { category: "体力", keywords: ["运动", "走路", "散步", "拉伸", "跑步", "健身"] },
+  { category: "社交", keywords: ["社交", "聊天", "约", "沟通", "会面"] },
+  { category: "工作", keywords: ["工作", "夜场", "上班", "直播", "项目", "赚钱"] },
+  { category: "娱乐", keywords: ["游戏", "娱乐", "放松", "追剧", "电影"] },
+];
+
+const TASK_CATEGORY_MAP = {
+  learning: "认知",
+  cleaning: "清理",
+  health: "体力",
+  work: "工作",
+  english: "认知",
+  explore: "娱乐",
+  context: "其他",
+  other: "其他",
+};
+
+const CATEGORY_KEY_MAP = {
+  认知: "learning",
+  清理: "cleaning",
+  体力: "health",
+  社交: "other",
+  工作: "work",
+  娱乐: "other",
+  其他: "other",
+};
+
+const ATTRIBUTE_MAP = {
+  认知: ["mind"],
+  清理: ["order", "body"],
+  体力: ["body"],
+  社交: ["charm"],
+  工作: ["wealth"],
+  娱乐: ["charm"],
+  其他: ["order"],
+};
+
+const BASE_REWARD_BY_SIZE = {
+  SMALL: { coins: 8, exp: 6 },
+  MEDIUM: { coins: 20, exp: 14 },
+  LARGE: { coins: 40, exp: 30 },
+};
+
+const PRIORITY_MAP = {
+  urgent: "URGENT",
+  soon: "SOON",
+  later: "LATER",
+  quick: "FAST",
+  long: "LONG",
+  URGENT: "URGENT",
+  SOON: "SOON",
+  LATER: "LATER",
+  FAST: "FAST",
+  LONG: "LONG",
+};
+
+const TYPE_MAP = {
+  repeat: "REPEATABLE",
+  repeatable: "REPEATABLE",
+  habit: "HABIT",
+  one_shot: "ONE_SHOT",
+  ONE_SHOT: "ONE_SHOT",
+  REPEATABLE: "REPEATABLE",
+  HABIT: "HABIT",
+};
+
+const ATTRIBUTE_EXP_BY_SIZE = {
+  SMALL: 10,
+  MEDIUM: 25,
+  LARGE: 50,
+};
+
+const SIZE_REWARD_MULTIPLIER = {
+  SMALL: 0.8,
+  MEDIUM: 1,
+  LARGE: 1.6,
+};
+
+function inferTaskCategory(title, fallbackCategory) {
+  const safeTitle = title || "";
+  const match = TASK_CATEGORY_KEYWORDS.find((item) =>
+    item.keywords.some((keyword) => safeTitle.includes(keyword))
+  );
+  if (match) return match.category;
+  if (fallbackCategory && TASK_CATEGORY_MAP[fallbackCategory]) {
+    return TASK_CATEGORY_MAP[fallbackCategory];
+  }
+  return fallbackCategory || "其他";
+}
+
+function resolveAttributeImpact(category) {
+  return ATTRIBUTE_MAP[category] || ["order"];
+}
+
+function resolveTaskDefaults(taskInput) {
+  const category = inferTaskCategory(taskInput.title, taskInput.category);
+  const categoryKey =
+    taskInput.categoryKey ||
+    CATEGORY_KEY_MAP[category] ||
+    (typeof taskInput.category === "string" ? taskInput.category : "other");
+  const size = taskInput.size || "SMALL";
+  const priority = PRIORITY_MAP[taskInput.priority] || "FAST";
+  const type =
+    TYPE_MAP[taskInput.type] ||
+    (taskInput.isRepeatable || taskInput.repeatable ? "REPEATABLE" : "ONE_SHOT");
+  const baseReward = taskInput.baseReward || BASE_REWARD_BY_SIZE[size] || BASE_REWARD_BY_SIZE.SMALL;
+  return {
+    category,
+    categoryKey,
+    size,
+    priority,
+    type,
+    baseReward,
+    attributeImpact: taskInput.attributeImpact || resolveAttributeImpact(category),
+  };
+}
+
+function resolveCategoryKeyValue(category) {
+  if (!category) return "other";
+  return CATEGORY_KEY_MAP[category] || category;
+}
+
+function calculateAttributeExp(task) {
+  const size = task.size || "SMALL";
+  const base = ATTRIBUTE_EXP_BY_SIZE[size] || ATTRIBUTE_EXP_BY_SIZE.SMALL;
+  const priorityBonus = task.priority === "URGENT" ? 8 : task.priority === "SOON" ? 4 : 0;
+  const typeBonus = task.type === "HABIT" ? 4 : task.type === "REPEATABLE" ? 2 : 0;
+  return base + priorityBonus + typeBonus;
+}
+
+function computeTaskBaseReward(taskInput) {
+  const minutes = Number(taskInput.estimateMinutes ?? taskInput.minutes) || 15;
+  const size = taskInput.size || "SMALL";
+  const multiplier = SIZE_REWARD_MULTIPLIER[size] || 1;
+  const coins = Math.max(1, Math.round((minutes / 60) * BASE_COINS_PER_HOUR * multiplier));
+  const exp = Math.max(1, Math.round(coins * 0.6));
+  return { coins, exp };
+}
+
+function applyAttributeExp(attributes, attributeIds, expAmount) {
+  if (!attributeIds?.length || !expAmount) return { attributes, leveled: [] };
+  const now = Date.now();
+  const leveled = [];
+  const updated = attributes.map((attr) => {
+    if (!attributeIds.includes(attr.id)) return attr;
+    let nextExp = attr.exp + expAmount;
+    let nextLevel = attr.level;
+    let nextExpToNext = attr.expToNext;
+    while (nextExp >= nextExpToNext) {
+      nextExp -= nextExpToNext;
+      nextLevel += 1;
+      nextExpToNext = Math.round(nextExpToNext * ATTRIBUTE_LEVEL_GROWTH);
+    }
+    if (nextLevel > attr.level) {
+      leveled.push({ id: attr.id, level: nextLevel });
+    }
+    return {
+      ...attr,
+      level: nextLevel,
+      exp: nextExp,
+      expToNext: nextExpToNext,
+      updatedAt: now,
+    };
+  });
+  return { attributes: updated, leveled };
+}
 function createDefaultState() {
   return {
     stats: { ...DEFAULT_STATS },
@@ -129,6 +366,12 @@ function createDefaultState() {
     treasureMaps: [],
     claims: [],
     achievements: initializeAchievements(),
+    attributes: buildDefaultAttributes(),
+    attributeHistory: [],
+    notes: [],
+    timerSessions: [],
+    settings: { ...DEFAULT_SETTINGS },
+    dailyBatchPlan: null,
     burst: { ...DEFAULT_BURST },
     history: [],
   };
@@ -155,8 +398,11 @@ function buildHistoryEntry(record) {
   return {
     id: record.id || newId(),
     type: record.type,
+    kind: record.kind || record.type,
     payload: record.payload || {},
-    timestamp: record.timestamp || Date.now(),
+    timestamp: record.timestamp || record.createdAt || Date.now(),
+    createdAt: record.createdAt || record.timestamp || Date.now(),
+    canUndo: Boolean(record.canUndo ?? record.undoable ?? record.undo),
   };
 }
 
@@ -187,20 +433,39 @@ function migrateLegacyState(raw) {
       const status = task.status || "todo";
       const meta = normalizeTaskMeta(task);
       const streakState = normalizeTaskStreakState(task);
+      const defaults = resolveTaskDefaults({
+        title: task.title,
+        category: task.category,
+        size: task.size,
+        priority: task.priority,
+        type: task.type,
+        baseReward: task.baseReward,
+        attributeImpact: task.attributeImpact,
+      });
       return {
         id: task.id || newId(),
         title: task.title || "未命名任务",
-        category: task.category || "other",
+        category: defaults.category,
+        categoryKey: defaults.categoryKey,
+        description: task.description,
+        tags: Array.isArray(task.tags) ? task.tags : [],
+        size: defaults.size,
+        priority: defaults.priority,
+        type: defaults.type,
+        repeatRule: task.repeatRule,
+        attributeImpact: defaults.attributeImpact,
+        baseReward: defaults.baseReward,
         subtype: task.subtype,
         status,
         isRepeatable,
         createdAt: task.createdAt || Date.now(),
+        updatedAt: task.updatedAt || task.createdAt || Date.now(),
         completedAt: task.completedAt,
         exp: task.rewardXp || task.exp || 0,
         coinsReward: task.rewardCoins || task.coinsReward || 0,
         effect: task.effect || undefined,
         lastCompletedAt: task.lastCompletedAt || undefined,
-        priority: normalizeTaskPriority(task.priority),
+        totalCompletedCount: task.totalCompletedCount || 0,
         streak: streakState.streak,
         streakActive: streakState.streakActive,
         minutes: meta.minutes,
@@ -218,6 +483,7 @@ function migrateLegacyState(raw) {
       taskId: task.id,
       title: task.title,
       category: task.category,
+      categoryKey: task.categoryKey,
       completedAt: task.completedAt || Date.now(),
       day: base.world.day,
       exp: task.exp,
@@ -252,6 +518,12 @@ function migrateLegacyState(raw) {
     completedTasks,
     treasureMaps,
     stats: normalizeStats(raw.stats || raw),
+    attributes: buildDefaultAttributes(),
+    attributeHistory: [],
+    notes: [],
+    timerSessions: [],
+    settings: { ...DEFAULT_SETTINGS },
+    dailyBatchPlan: null,
   };
 }
 
@@ -272,11 +544,31 @@ function loadState() {
         exp: parsed.exp ?? parsed.xp ?? 0,
         tickets: { game: parsed.tickets?.game ?? 0 },
         tasks: Array.isArray(parsed.tasks)
-          ? parsed.tasks.map((task) => ({
-              ...task,
-              ...normalizeTaskMeta(task),
-              ...normalizeTaskStreakState(task),
-            }))
+          ? parsed.tasks.map((task) => {
+              const defaults = resolveTaskDefaults({
+                title: task.title,
+                category: task.category,
+                categoryKey: task.categoryKey,
+                size: task.size,
+                priority: task.priority,
+                type: task.type,
+                baseReward: task.baseReward,
+                attributeImpact: task.attributeImpact,
+              });
+              return {
+                ...task,
+                category: defaults.category,
+                categoryKey: defaults.categoryKey,
+                size: defaults.size,
+                priority: defaults.priority,
+                type: defaults.type,
+                attributeImpact: defaults.attributeImpact,
+                baseReward: defaults.baseReward,
+                updatedAt: task.updatedAt || task.createdAt || Date.now(),
+                ...normalizeTaskMeta({ ...task, categoryKey: defaults.categoryKey }),
+                ...normalizeTaskStreakState(task),
+              };
+            })
           : [],
         completedTasks: Array.isArray(parsed.completedTasks) ? parsed.completedTasks : [],
         treasureMaps: Array.isArray(parsed.treasureMaps)
@@ -284,6 +576,16 @@ function loadState() {
           : [],
         claims: Array.isArray(parsed.claims) ? parsed.claims : [],
         achievements: initializeAchievements(parsed.achievements),
+        attributes: Array.isArray(parsed.attributes) ? parsed.attributes : buildDefaultAttributes(),
+        attributeHistory: Array.isArray(parsed.attributeHistory) ? parsed.attributeHistory : [],
+        notes: Array.isArray(parsed.notes) ? parsed.notes : [],
+        timerSessions: Array.isArray(parsed.timerSessions) ? parsed.timerSessions : [],
+        settings: {
+          ...DEFAULT_SETTINGS,
+          ...(parsed.settings || {}),
+          coinsPerYuan: parsed.settings?.coinsPerYuan ?? loadCoinsPerYuan(),
+        },
+        dailyBatchPlan: parsed.dailyBatchPlan || null,
         burst: normalizeBurst(parsed.burst),
         history: loadHistory(),
       };
@@ -324,7 +626,8 @@ function pickRandomEvent() {
 function calculateRewardModifier(randomEvent, taskCategory) {
   if (!randomEvent?.taskRewardModifier) return { expMultiplier: 1, coinMultiplier: 1, expBonus: 0 };
   const { categories, expMultiplier, coinMultiplier, expBonus } = randomEvent.taskRewardModifier;
-  const applies = !categories || categories.length === 0 || categories.includes(taskCategory);
+  const categoryKey = resolveCategoryKeyValue(taskCategory);
+  const applies = !categories || categories.length === 0 || categories.includes(categoryKey);
   return applies
     ? {
         expMultiplier: expMultiplier ?? 1,
@@ -345,19 +648,43 @@ function normalizeTaskEffect(task) {
 
 function computeAchievementProgress(state, template) {
   const { completedTasks, world } = state;
+  const condition = template.condition || {
+    kind: template.type,
+    value: template.target,
+    extra: template.tag ? { tag: template.tag } : undefined,
+  };
+  const targetValue = Number(condition?.value) || 0;
 
-  if (template.type === "tag_count") {
-    const count = completedTasks.filter((task) => task.tags?.includes(template.tag)).length;
-    return {
-      progress: Math.min(count, template.target),
-      unlockedNow: count >= template.target,
-    };
+  if (condition?.kind === "task_total") {
+    const count = completedTasks.length;
+    return { progress: Math.min(count, targetValue), unlockedNow: count >= targetValue };
   }
 
-  if (template.type === "course_streak") {
+  if (condition?.kind === "tag_count") {
+    const tag = condition.extra?.tag;
+    const count = completedTasks.filter((task) => tag && task.tags?.includes(tag)).length;
+    return { progress: Math.min(count, targetValue), unlockedNow: count >= targetValue };
+  }
+
+  if (condition?.kind === "tag_or_category_count") {
+    const tag = condition.extra?.tag;
+    const categories = condition.extra?.categories || [];
+    const count = completedTasks.filter((task) => {
+      const matchesTag = tag ? task.tags?.includes(tag) : false;
+      const matchesCategory =
+        categories.includes(task.category) || categories.includes(task.categoryKey);
+      return matchesTag || matchesCategory;
+    }).length;
+    return { progress: Math.min(count, targetValue), unlockedNow: count >= targetValue };
+  }
+
+  if (condition?.kind === "course_streak" || condition?.kind === "category_streak") {
+    const categories = condition.extra?.categories || ["course", "learning", "认知"];
     const daysWithCourse = new Set(
       completedTasks
-        .filter((task) => task.category === "course")
+        .filter(
+          (task) => categories.includes(task.category) || categories.includes(task.categoryKey)
+        )
         .map((task) => task.day)
     );
     let streak = 0;
@@ -368,27 +695,40 @@ function computeAchievementProgress(state, template) {
         break;
       }
     }
-    return { progress: Math.min(streak, template.target), unlockedNow: streak >= template.target };
+    return { progress: Math.min(streak, targetValue), unlockedNow: streak >= targetValue };
   }
 
-  if (template.type === "course_daily") {
+  if (condition?.kind === "course_daily") {
+    const categories = condition.extra?.categories || ["course", "learning", "认知"];
     const count = completedTasks.filter(
-      (task) => task.category === "course" && task.day === world.day
+      (task) =>
+        task.day === world.day &&
+        (categories.includes(task.category) || categories.includes(task.categoryKey))
     ).length;
-    return {
-      progress: Math.min(count, template.target),
-      unlockedNow: count >= template.target,
-    };
+    return { progress: Math.min(count, targetValue), unlockedNow: count >= targetValue };
   }
 
-  if (template.type === "no_tag_days") {
-    const taggedTasks = completedTasks.filter((task) => task.tags?.includes(template.tag));
+  if (condition?.kind === "no_tag_days") {
+    const tag = condition.extra?.tag;
+    const taggedTasks = completedTasks.filter((task) => tag && task.tags?.includes(tag));
     const lastDay = taggedTasks.reduce((latest, task) => Math.max(latest, task.day || 0), 0);
     const daysWithout = Math.max(world.day - lastDay, 0);
-    return {
-      progress: Math.min(daysWithout, template.target),
-      unlockedNow: daysWithout >= template.target,
-    };
+    return { progress: Math.min(daysWithout, targetValue), unlockedNow: daysWithout >= targetValue };
+  }
+
+  if (condition?.kind === "attribute_level") {
+    const targetAttr = state.attributes?.find(
+      (attr) => attr.id === condition.extra?.attributeId
+    );
+    const level = targetAttr?.level || 0;
+    return { progress: Math.min(level, targetValue), unlockedNow: level >= targetValue };
+  }
+
+  if (condition?.kind === "daily_coins") {
+    const coins = completedTasks
+      .filter((task) => task.day === world.day)
+      .reduce((sum, task) => sum + (Number(task.coins) || 0), 0);
+    return { progress: Math.min(coins, targetValue), unlockedNow: coins >= targetValue };
   }
 
   return { progress: 0, unlockedNow: false };
@@ -434,7 +774,8 @@ function recalculateAchievements(state) {
   let updatedState = { ...state };
 
   const updatedAchievements = ACHIEVEMENTS_CONFIG.map((template) => {
-    const existing = state.achievements.find((item) => item.key === template.key);
+    const templateId = resolveAchievementId(template);
+    const existing = state.achievements.find((item) => item.id === templateId);
     if (existing?.unlocked) {
       return { ...existing, target: template.target };
     }
@@ -445,13 +786,17 @@ function recalculateAchievements(state) {
     }
 
     return {
-      key: template.key,
+      id: templateId,
       name: template.name,
       description: template.description,
+      icon: template.icon,
+      type: template.type,
+      condition: template.condition,
       target: template.target,
       progress,
       unlocked: unlockedNow,
       unlockedAt: unlockedNow ? Date.now() : undefined,
+      timesUnlocked: unlockedNow ? 1 : 0,
     };
   });
 
@@ -510,7 +855,11 @@ function maybeTriggerTreasureMaps(state, taskContext) {
 
   const completed = state.completedTasks || [];
   const bySubtype = (subtype) =>
-    completed.filter((task) => task.category === "course" && task.subtype === subtype).length;
+    completed.filter(
+      (task) =>
+        resolveCategoryKeyValue(task.categoryKey || task.category) === "course" &&
+        task.subtype === subtype
+    ).length;
 
   let updatedState = state;
 
@@ -554,8 +903,8 @@ function maybeTriggerTreasureMaps(state, taskContext) {
     });
   }
 
-  if (taskContext?.category === "course") {
-    const streakAchievement = updatedState.achievements.find((ach) => ach.key === "course_3days");
+  if (resolveCategoryKeyValue(taskContext?.categoryKey || taskContext?.category) === "course") {
+    const streakAchievement = updatedState.achievements.find((ach) => ach.id === "course_3days");
     if (streakAchievement?.unlocked && !existingKeys.has("course_streak_3")) {
       updatedState = applyNewTreasureMap(updatedState, {
         triggerKey: "course_streak_3",
@@ -636,6 +985,8 @@ export function WorldProvider({ children }) {
         tasks: dayChanged
           ? (prev.tasks || []).map((task) => resetMissedTaskStreak(task, prev.world?.day))
           : prev.tasks,
+        dailyBatchPlan:
+          prev.dailyBatchPlan?.dayKey === todayKey ? prev.dailyBatchPlan : null,
         world: {
           ...prev.world,
           day: dayIndex,
@@ -831,38 +1182,66 @@ export function WorldProvider({ children }) {
 
     const template = taskInput.templateId ? TASK_CONFIG[taskInput.templateId] : null;
     const baseDifficulty = taskInput.difficulty ?? template?.difficulty;
+    const defaults = resolveTaskDefaults({
+      title: taskInput.title || template?.name,
+      category: template?.category || taskInput.category,
+      categoryKey: taskInput.categoryKey,
+      size: taskInput.size,
+      priority: taskInput.priority,
+      type: taskInput.type,
+      baseReward: taskInput.baseReward,
+      attributeImpact: taskInput.attributeImpact,
+    });
     const meta = normalizeTaskMeta({
       ...template,
       ...taskInput,
+      categoryKey: defaults.categoryKey,
       difficulty: baseDifficulty,
     });
-    const baseReward = computeRewards(baseDifficulty);
+    const baseReward =
+      taskInput.baseReward ||
+      (template ? computeRewards(baseDifficulty) : computeTaskBaseReward({ ...taskInput, ...defaults }));
+    const baseRewardValue = baseReward?.coins
+      ? { coins: baseReward.coins, exp: baseReward.exp }
+      : defaults.baseReward;
     const sanityBonus = getSanityGain(meta.difficultyValue);
     const instanceId = newId();
     const streakState = normalizeTaskStreakState(taskInput);
+    const estimateMinutes =
+      Number(taskInput.estimateMinutes ?? taskInput.minutes ?? template?.estimatedMinutes) || 20;
+    const now = Date.now();
 
     const created = {
       id: instanceId,
       instanceId,
       templateId: template?.templateId || taskInput.templateId,
       title: template?.name || taskInput.title || "未命名任务",
-      category: template?.category || taskInput.category || "other",
+      category: defaults.category,
+      categoryKey: defaults.categoryKey,
+      description: taskInput.description || template?.description,
       notes: taskInput.notes || "",
       subtype: taskInput.subtype || template?.subtype,
       status: "todo",
       isRepeatable: Boolean(template?.repeatable ?? taskInput.isRepeatable ?? taskInput.repeatable),
-      createdAt: Date.now(),
-      priority: normalizeTaskPriority(template?.priority || taskInput.priority),
-      exp: baseReward.exp,
-      coinsReward: baseReward.coins,
+      createdAt: now,
+      updatedAt: now,
+      priority: defaults.priority,
+      type: defaults.type,
+      repeatRule: taskInput.repeatRule,
+      attributeImpact: defaults.attributeImpact,
+      baseReward: baseRewardValue,
+      exp: baseRewardValue.exp,
+      coinsReward: baseRewardValue.coins,
       effect: template?.effect || taskInput.effect || { sanity: sanityBonus },
-      rewardPreview: { coins: baseReward.coins, exp: baseReward.exp },
+      rewardPreview: { coins: baseRewardValue.coins, exp: baseRewardValue.exp },
       lastCompletedAt: taskInput.lastCompletedAt,
+      totalCompletedCount: taskInput.totalCompletedCount || 0,
       prerequisites: template?.prerequisites || taskInput.prerequisites || [],
       requirements: template?.requirements || taskInput.requirements || {},
       tags: template?.tags || taskInput.tags || [],
       isUserCreated: Boolean(taskInput.isUserCreated),
-      size: taskInput.size,
+      size: defaults.size,
+      estimateMinutes,
       minutes: meta.minutes,
       difficulty: meta.difficulty,
       difficultyValue: meta.difficultyValue,
@@ -925,7 +1304,7 @@ export function WorldProvider({ children }) {
     }
 
     if (task.prerequisites?.length) {
-      const unlockedKeys = new Set(state.achievements.filter((a) => a.unlocked).map((a) => a.key));
+      const unlockedKeys = new Set(state.achievements.filter((a) => a.unlocked).map((a) => a.id));
       const missing = task.prerequisites.find((key) => !unlockedKeys.has(key));
       if (missing) {
         return { ok: false, message: "前置成就尚未解锁" };
@@ -937,7 +1316,10 @@ export function WorldProvider({ children }) {
 
     const baseState = normalizedState;
 
-    const rewardModifier = calculateRewardModifier(baseState.world.randomEvent, task.category);
+    const rewardModifier = calculateRewardModifier(
+      baseState.world.randomEvent,
+      task.categoryKey || task.category
+    );
     const meta = normalizeTaskMeta(task);
     const streakUpdate = updateTaskStreak(task, baseState.world.day);
     const streakMultiplier = getStreakRewardMultiplier(streakUpdate.streakActive);
@@ -946,7 +1328,7 @@ export function WorldProvider({ children }) {
       baseState.burst.lastKind && baseState.burst.lastKind === burstKind
         ? (baseState.burst.comboCount || 0) + 1
         : 1;
-    const baseReward = computeRewards(meta.difficulty);
+    const baseReward = task.baseReward?.coins ? task.baseReward : computeRewards(meta.difficulty);
     const burstBonus = Math.min(0.05 * Math.max(0, nextComboCount - 1), 0.5);
     const rewardExp = Math.max(
       0,
@@ -976,6 +1358,8 @@ export function WorldProvider({ children }) {
           ...item,
           status: "todo",
           lastCompletedAt: completedAt,
+          totalCompletedCount: (item.totalCompletedCount || 0) + 1,
+          updatedAt: completedAt,
           streak: streakUpdate.streak,
           streakActive: streakUpdate.streakActive,
         };
@@ -985,6 +1369,8 @@ export function WorldProvider({ children }) {
         status: "done",
         completedAt,
         lastCompletedAt: completedAt,
+        totalCompletedCount: (item.totalCompletedCount || 0) + 1,
+        updatedAt: completedAt,
         streak: streakUpdate.streak,
         streakActive: streakUpdate.streakActive,
       };
@@ -1017,6 +1403,7 @@ export function WorldProvider({ children }) {
       templateId: task.templateId,
       title: task.title,
       category: task.category,
+      categoryKey: task.categoryKey,
       subtype: task.subtype,
       completedAt,
       day: baseState.world.day,
@@ -1025,7 +1412,7 @@ export function WorldProvider({ children }) {
       tags: task.tags || [],
     };
 
-    const nextHistory = pushHistoryEntry(
+    let nextHistory = pushHistoryEntry(
       buildHistoryEntry({
         type: "task_complete",
         payload: {
@@ -1042,6 +1429,36 @@ export function WorldProvider({ children }) {
       baseState.history
     );
 
+    const attributeExp = calculateAttributeExp(task);
+    const attributeResult = applyAttributeExp(
+      baseState.attributes || buildDefaultAttributes(),
+      task.attributeImpact,
+      attributeExp
+    );
+    const attributeHistoryEntries = (task.attributeImpact || []).map((attributeId) => ({
+      id: newId(),
+      attributeId,
+      exp: attributeExp,
+      taskId: task.id,
+      createdAt: completedAt,
+    }));
+
+    if (attributeResult.leveled.length > 0) {
+      attributeResult.leveled.forEach((entry) => {
+        nextHistory = pushHistoryEntry(
+          buildHistoryEntry({
+            type: "attribute_level_up",
+            payload: {
+              attributeId: entry.id,
+              level: entry.level,
+              taskId: task.id,
+            },
+          }),
+          nextHistory
+        );
+      });
+    }
+
     let nextState = {
       ...baseState,
       stats: updatedStats,
@@ -1052,6 +1469,11 @@ export function WorldProvider({ children }) {
         coins: baseState.currency.coins + rewardCoins,
       },
       exp: (baseState.exp || 0) + rewardExp,
+      attributes: attributeResult.attributes,
+      attributeHistory: [
+        ...(attributeHistoryEntries || []),
+        ...(baseState.attributeHistory || []),
+      ],
       burst: updatedBurst,
       history: nextHistory,
     };
@@ -1059,6 +1481,28 @@ export function WorldProvider({ children }) {
     nextState = progressTreasureMapsInternal(nextState, task);
     nextState = recalculateAchievements(nextState);
     nextState = maybeTriggerTreasureMaps(nextState, task);
+
+    const newlyUnlocked = nextState.achievements.filter(
+      (ach) =>
+        ach.unlocked &&
+        !baseState.achievements?.some((prev) => prev.id === ach.id && prev.unlocked)
+    );
+    if (newlyUnlocked.length > 0) {
+      let historyWithUnlocks = nextState.history;
+      newlyUnlocked.forEach((ach) => {
+        historyWithUnlocks = pushHistoryEntry(
+          buildHistoryEntry({
+            type: "achievement_unlock",
+            payload: {
+              achievementId: ach.id,
+              name: ach.name,
+            },
+          }),
+          historyWithUnlocks
+        );
+      });
+      nextState = { ...nextState, history: historyWithUnlocks };
+    }
 
     setState(nextState);
 
@@ -1071,14 +1515,129 @@ export function WorldProvider({ children }) {
     };
   }, [state]);
 
+  const addNote = useCallback((text, options = {}) => {
+    if (!state) return null;
+    const trimmed = text?.trim();
+    if (!trimmed) return null;
+    const now = Date.now();
+    const note = {
+      id: newId(),
+      text: trimmed,
+      createdAt: now,
+      relatedTaskId: options.relatedTaskId,
+      kind: options.kind || "IDEA",
+      convertedAt: options.convertedAt,
+    };
+    setState((prev) => ({
+      ...prev,
+      notes: [note, ...(prev.notes || [])],
+    }));
+    return note;
+  }, [state]);
+
+  const deleteNote = useCallback((noteId) => {
+    if (!state) return;
+    setState((prev) => ({
+      ...prev,
+      notes: (prev.notes || []).filter((note) => note.id !== noteId),
+    }));
+  }, [state]);
+
+  const markNoteConverted = useCallback((noteId, taskId) => {
+    if (!state) return;
+    setState((prev) => ({
+      ...prev,
+      notes: (prev.notes || []).map((note) =>
+        note.id === noteId
+          ? { ...note, convertedAt: Date.now(), relatedTaskId: taskId || note.relatedTaskId }
+          : note
+      ),
+    }));
+  }, [state]);
+
+  const recordTimerSession = useCallback((sessionInput) => {
+    if (!state || !sessionInput) return null;
+    const now = Date.now();
+    const session = {
+      id: newId(),
+      mode: sessionInput.mode || "POMODORO",
+      taskId: sessionInput.taskId,
+      taskTitle: sessionInput.taskTitle,
+      workMinutes: sessionInput.workMinutes || 25,
+      restMinutes: sessionInput.restMinutes,
+      startedAt: sessionInput.startedAt || now,
+      endedAt: sessionInput.endedAt || now,
+      effectiveMinutes: sessionInput.effectiveMinutes || sessionInput.workMinutes || 0,
+    };
+
+    setState((prev) => {
+      let nextState = { ...prev, timerSessions: [session, ...(prev.timerSessions || [])] };
+      if (session.taskId && session.effectiveMinutes) {
+        const bonusCoins = Math.max(1, Math.round(session.effectiveMinutes * 0.6));
+        const bonusExp = Math.max(1, Math.round(bonusCoins * 0.5));
+        nextState = {
+          ...nextState,
+          currency: {
+            ...nextState.currency,
+            coins: nextState.currency.coins + bonusCoins,
+          },
+          exp: (nextState.exp || 0) + bonusExp,
+          history: pushHistoryEntry(
+            buildHistoryEntry({
+              type: "timer_reward",
+              payload: {
+                taskId: session.taskId,
+                coins: bonusCoins,
+                exp: bonusExp,
+                minutes: session.effectiveMinutes,
+              },
+            }),
+            nextState.history
+          ),
+        };
+      }
+      return nextState;
+    });
+
+    return session;
+  }, [state]);
+
+  const updateCoinsPerYuan = useCallback((value) => {
+    if (!state) return;
+    const normalized = Math.max(1, Math.round(Number(value) || DEFAULT_COINS_PER_YUAN));
+    saveCoinsPerYuan(normalized);
+    setState((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        coinsPerYuan: normalized,
+      },
+    }));
+  }, [state]);
+
+  const addBatchPlan = useCallback((payload) => {
+    if (!state || !payload) return;
+    setState((prev) => ({
+      ...prev,
+      dailyBatchPlan: {
+        id: newId(),
+        dayKey: getTodayKey(),
+        createdAt: Date.now(),
+        ...payload,
+      },
+    }));
+  }, [state]);
+
   const progressTreasureMapsInternal = (currentState, taskContext) => {
     if (!currentState.treasureMaps?.length) return currentState;
 
-    const updatedMaps = currentState.treasureMaps.map((map) => {
-      if (map.status === "completed") return map;
-      const categories = map.targetCategories;
-      const matchesCategory = !categories || categories.length === 0 || categories.includes(taskContext.category);
-      if (!matchesCategory) return map;
+  const updatedMaps = currentState.treasureMaps.map((map) => {
+    if (map.status === "completed") return map;
+    const categories = map.targetCategories;
+    const taskCategory = resolveCategoryKeyValue(taskContext.categoryKey || taskContext.category);
+    const matchesCategory =
+      !categories || categories.length === 0 || categories.includes(taskCategory);
+    if (!matchesCategory) return map;
       const completed = Math.min(map.completedTasks + 1, map.targetTasks);
       return {
         ...map,
@@ -1362,14 +1921,14 @@ export function WorldProvider({ children }) {
     return { ok: true };
   }, [state]);
 
-  const unlockAchievement = useCallback((key) => {
+  const unlockAchievement = useCallback((id) => {
     if (!state) return;
-    const template = ACHIEVEMENTS_CONFIG.find((item) => item.key === key);
+    const template = ACHIEVEMENTS_CONFIG.find((item) => resolveAchievementId(item) === id);
     if (!template) return;
 
     setState((prev) => {
       const updatedAchievements = (prev.achievements || []).map((ach) =>
-        ach.key === key
+        ach.id === id
           ? { ...ach, unlocked: true, unlockedAt: Date.now(), progress: ach.target || 0 }
           : ach
       );
@@ -1379,15 +1938,15 @@ export function WorldProvider({ children }) {
     });
   }, [state]);
 
-  const updateAchievementProgress = useCallback((key, delta) => {
+  const updateAchievementProgress = useCallback((id, delta) => {
     if (!state) return;
-    const template = ACHIEVEMENTS_CONFIG.find((item) => item.key === key);
+    const template = ACHIEVEMENTS_CONFIG.find((item) => resolveAchievementId(item) === id);
     if (!template) return;
 
     setState((prev) => {
       let updatedState = { ...prev };
       const updatedAchievements = (prev.achievements || []).map((ach) => {
-        if (ach.key !== key) return ach;
+        if (ach.id !== id) return ach;
         if (ach.unlocked) return ach;
         const progress = Math.min((ach.progress || 0) + delta, ach.target || template.target || 0);
         const unlockedNow = progress >= (ach.target || template.target || 0);
@@ -1420,6 +1979,12 @@ export function WorldProvider({ children }) {
     treasureMaps: state?.treasureMaps || [],
     claims: state?.claims || [],
     achievements: state?.achievements || [],
+    attributes: state?.attributes || buildDefaultAttributes(),
+    attributeHistory: state?.attributeHistory || [],
+    notes: state?.notes || [],
+    timerSessions: state?.timerSessions || [],
+    settings: state?.settings || { ...DEFAULT_SETTINGS },
+    dailyBatchPlan: state?.dailyBatchPlan || null,
     burst: state?.burst || { ...DEFAULT_BURST },
     history: state?.history || [],
     changeStats,
@@ -1434,6 +1999,12 @@ export function WorldProvider({ children }) {
     useGameTicket,
     registerTask,
     completeTask,
+    addNote,
+    deleteNote,
+    markNoteConverted,
+    recordTimerSession,
+    updateCoinsPerYuan,
+    addBatchPlan,
     progressTreasureMaps,
     addTreasureMap,
     completeTreasureMap,
@@ -1460,6 +2031,12 @@ export function WorldProvider({ children }) {
     useGameTicket,
     registerTask,
     completeTask,
+    addNote,
+    deleteNote,
+    markNoteConverted,
+    recordTimerSession,
+    updateCoinsPerYuan,
+    addBatchPlan,
     progressTreasureMaps,
     addTreasureMap,
     completeTreasureMap,

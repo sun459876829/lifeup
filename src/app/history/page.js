@@ -10,6 +10,10 @@ const KIND_LABELS = {
   task_edit: "编辑任务",
   task_revert: "撤销操作",
   reward_gain: "获得奖励",
+  achievement_unlock: "成就解锁",
+  attribute_level_up: "属性升级",
+  timer_reward: "计时奖励",
+  history_undo: "撤销记录",
 };
 
 function formatDelta(value, suffix) {
@@ -33,6 +37,15 @@ function resolveEntryTitle(entry, tasks, taskConfig) {
   if (entryType === "reward_gain") {
     return payload.title || payload.reason || "奖励";
   }
+  if (entryType === "achievement_unlock") {
+    return payload.name || "成就解锁";
+  }
+  if (entryType === "attribute_level_up") {
+    return payload.attributeId ? `属性升级 · ${payload.attributeId}` : "属性升级";
+  }
+  if (entryType === "timer_reward") {
+    return payload.taskTitle || "计时奖励";
+  }
   if (entryType === "task_revert") {
     const label = KIND_LABELS[payload.targetType] || "操作";
     return payload.taskTitle
@@ -45,8 +58,13 @@ function resolveEntryTitle(entry, tasks, taskConfig) {
 }
 
 function resolveCoinsDelta(entry) {
-  if ((entry.type || entry.kind) === "reward_gain") {
+  const entryType = entry.type || entry.kind;
+  if (entryType === "reward_gain") {
     const amount = entry.payload?.amount ?? entry.payload?.coins ?? entry.payload?.delta;
+    if (typeof amount === "number") return amount;
+  }
+  if (entryType === "timer_reward") {
+    const amount = entry.payload?.coins;
     if (typeof amount === "number") return amount;
   }
   return null;
@@ -55,12 +73,15 @@ function resolveCoinsDelta(entry) {
 export default function HistoryPage() {
   const { hydrated, history, tasks, undoHistory, taskConfig } = useWorld();
   const [message, setMessage] = useState("");
+  const [filter, setFilter] = useState("all");
   const entries = useMemo(() => {
     const list = Array.isArray(history) ? history : [];
-    return [...list].sort(
+    const sorted = [...list].sort(
       (a, b) => (b.timestamp || b.createdAt || 0) - (a.timestamp || a.createdAt || 0)
     );
-  }, [history]);
+    if (filter === "all") return sorted;
+    return sorted.filter((entry) => (entry.type || entry.kind) === filter);
+  }, [history, filter]);
 
   const handleUndo = (id) => {
     const result = undoHistory(id);
@@ -117,12 +138,27 @@ export default function HistoryPage() {
         </div>
       ) : (
         <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <span>筛选：</span>
+            <select
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              className="rounded-lg border border-slate-700 bg-slate-950/60 px-2 py-1 text-xs text-slate-200"
+            >
+              <option value="all">全部</option>
+              {Object.keys(KIND_LABELS).map((key) => (
+                <option key={key} value={key}>
+                  {KIND_LABELS[key]}
+                </option>
+              ))}
+            </select>
+          </div>
           {entries.map((entry) => {
             const entryType = entry.type || entry.kind;
             const label = KIND_LABELS[entryType] || "未知操作";
             const title = resolveEntryTitle(entry, tasks, taskConfig);
             const coinsText = formatDelta(resolveCoinsDelta(entry), " 🪙");
-            const undoable = !entry.undone;
+            const undoable = (entry.canUndo ?? entry.undoable ?? !entry.undone) && !entry.undone;
             return (
               <div
                 key={entry.id}

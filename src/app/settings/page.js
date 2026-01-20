@@ -5,19 +5,32 @@ import { useEffect, useState } from "react";
 import { useWorld } from "../worldState";
 import { useGameState } from "@/state/GameStateContext";
 import { formatDateTime } from "@/components/WorldClock";
-import { getGameStartDate, getNow, setGameStartDate } from "@/game/time";
+import {
+  canAdvanceGameDay,
+  getGameDayKey,
+  getGameStartDate,
+  getNow,
+  getTodayKey,
+  setGameDayKey,
+  setGameStartDate,
+} from "@/game/time";
 import { DEFAULT_UI_SETTINGS, loadUiSettings, saveUiSettings } from "@/lib/uiSettings";
+import { ECONOMY_SETTINGS_KEY, DEFAULT_COINS_PER_YUAN } from "@/game/config/economy";
+import { HISTORY_STORAGE_KEY } from "@/game/history";
 
 export default function SettingsPage() {
-  const { now, todayKey, dayIndex, refreshTime } = useWorld();
+  const { now, todayKey, dayIndex, refreshTime, settings, updateCoinsPerYuan } = useWorld();
   const { addCoins, advanceWorldDay, movePlayer } = useGameState();
   const [gameStartDate, setGameStartDateState] = useState(null);
+  const [gameDayKey, setGameDayKeyState] = useState("");
+  const [coinsPerYuan, setCoinsPerYuan] = useState(settings?.coinsPerYuan ?? DEFAULT_COINS_PER_YUAN);
   const [uiSettings, setUiSettings] = useState(DEFAULT_UI_SETTINGS);
   const [notice, setNotice] = useState("");
   const [devMode, setDevMode] = useState(false);
 
   useEffect(() => {
     setGameStartDateState(getGameStartDate());
+    setGameDayKeyState(getGameDayKey());
     setUiSettings(loadUiSettings());
     setDevMode(localStorage.getItem("devMode") === "true");
   }, []);
@@ -32,6 +45,10 @@ export default function SettingsPage() {
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
+  useEffect(() => {
+    setCoinsPerYuan(settings?.coinsPerYuan ?? DEFAULT_COINS_PER_YUAN);
+  }, [settings]);
+
   function handleResetStartDate() {
     const confirmed = window.confirm("确定要将游戏开始日期重置为今天吗？这会让当前变为第 0 天。");
     if (!confirmed) return;
@@ -40,6 +57,81 @@ export default function SettingsPage() {
     refreshTime();
     setNotice("已将游戏开始日期重置为今天（第 0 天）");
     setTimeout(() => setNotice(""), 3000);
+  }
+
+  function handleSyncGameDay() {
+    const now = getNow();
+    if (!canAdvanceGameDay(now)) {
+      setNotice("当前仍是同一天，无法推进游戏日。");
+      setTimeout(() => setNotice(""), 3000);
+      return;
+    }
+    const nextKey = setGameDayKey(getTodayKey(now));
+    setGameDayKeyState(nextKey);
+    setNotice("已同步到新的现实日期。");
+    setTimeout(() => setNotice(""), 3000);
+  }
+
+  function handleCoinsPerYuanSave() {
+    updateCoinsPerYuan(coinsPerYuan);
+    setNotice("已更新金币换算设置。");
+    setTimeout(() => setNotice(""), 3000);
+  }
+
+  function handleExportData() {
+    const keys = [
+      "lifeup.arcane.v4",
+      HISTORY_STORAGE_KEY,
+      ECONOMY_SETTINGS_KEY,
+      "lifeup.gameStartDate.v1",
+      "lifeup.gameDayKey.v1",
+      "lifeup.uiSettings.v1",
+    ];
+    const payload = {
+      version: 1,
+      exportedAt: Date.now(),
+      data: keys.reduce((acc, key) => {
+        acc[key] = localStorage.getItem(key);
+        return acc;
+      }, {}),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `lifeup-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  function handleImportData(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (!parsed?.data || typeof parsed.data !== "object") {
+          setNotice("导入失败：备份文件格式错误。");
+          return;
+        }
+        const confirmed = window.confirm("导入会覆盖当前数据，确定继续吗？");
+        if (!confirmed) return;
+        Object.entries(parsed.data).forEach(([key, value]) => {
+          if (typeof value === "string") {
+            localStorage.setItem(key, value);
+          } else if (value === null) {
+            localStorage.removeItem(key);
+          }
+        });
+        window.location.reload();
+      } catch (error) {
+        setNotice("导入失败：无法解析备份文件。");
+      }
+    };
+    reader.readAsText(file);
   }
 
   function toggleSetting(key) {
@@ -115,6 +207,70 @@ export default function SettingsPage() {
             重置游戏开始日期为今天
           </button>
         </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4">
+          <div className="text-xs text-slate-500">当前游戏日 key</div>
+          <div className="text-sm text-slate-200 mt-1">{gameDayKey || "--"}</div>
+          <button
+            type="button"
+            onClick={handleSyncGameDay}
+            className="mt-3 rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200 hover:border-emerald-300 hover:text-emerald-100 transition"
+          >
+            同步到今天（仅现实日期变更后可用）
+          </button>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4 shadow-lg shadow-slate-950/30">
+        <div>
+          <h2 className="text-sm font-medium text-slate-100">💰 经济与奖励设置</h2>
+          <p className="text-xs text-slate-500 mt-1">仅影响显示与自我参考，不会影响现实账本。</p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-[1fr_auto] items-end">
+          <div className="space-y-2">
+            <label className="text-xs text-slate-400" htmlFor="coins-per-yuan">
+              金币换算（金币 ≈ 1 元）
+            </label>
+            <input
+              id="coins-per-yuan"
+              type="number"
+              min={1}
+              value={coinsPerYuan}
+              onChange={(event) => setCoinsPerYuan(event.target.value)}
+              className="w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/40"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleCoinsPerYuanSave}
+            className="rounded-lg bg-emerald-500/80 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500"
+          >
+            保存
+          </button>
+        </div>
+        <div className="text-xs text-slate-500">
+          当前换算：{settings?.coinsPerYuan ?? DEFAULT_COINS_PER_YUAN} 金币 ≈ 1 元
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4 shadow-lg shadow-slate-950/30">
+        <div>
+          <h2 className="text-sm font-medium text-slate-100">🧳 数据备份</h2>
+          <p className="text-xs text-slate-500 mt-1">导出/导入本地数据，防止误删。</p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={handleExportData}
+            className="rounded-lg bg-slate-900 border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:border-emerald-400 hover:text-emerald-200 transition"
+          >
+            导出数据
+          </button>
+          <label className="rounded-lg bg-slate-900 border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:border-emerald-400 hover:text-emerald-200 transition cursor-pointer">
+            导入数据
+            <input type="file" accept="application/json" className="hidden" onChange={handleImportData} />
+          </label>
+        </div>
+        <div className="text-xs text-slate-500">导入会覆盖当前数据，请谨慎操作。</div>
       </section>
 
       <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4 shadow-lg shadow-slate-950/30">

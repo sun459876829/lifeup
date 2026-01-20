@@ -9,9 +9,18 @@ export const STAT_LIMITS = {
 
 const STUDY_KINDS = new Set(["study", "course", "english", "learning", "reading"]);
 const WORK_KINDS = new Set(["work", "nightclub", "job", "livestream", "live"]);
+const CATEGORY_ALIASES = new Map([
+  ["认知", "study"],
+  ["清理", "life"],
+  ["体力", "life"],
+  ["社交", "life"],
+  ["工作", "work"],
+  ["娱乐", "life"],
+  ["其他", "other"],
+]);
 
 export function resolveTaskKind(category, kind) {
-  const base = kind || category || "other";
+  const base = kind || CATEGORY_ALIASES.get(category) || category || "other";
   if (STUDY_KINDS.has(base)) return "study";
   if (WORK_KINDS.has(base)) return "work";
   if (["life", "weight", "photo", "future", "other"].includes(base)) return "life";

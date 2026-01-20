@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import TimerRing from "@/components/TimerRing";
+import { useWorld } from "../worldState";
 
 function formatElapsed(value) {
   const total = Math.max(0, Math.floor(value));
@@ -12,10 +13,12 @@ function formatElapsed(value) {
 
 export default function TimerPage() {
   const timerRef = useRef(null);
+  const { recordTimerSession } = useWorld();
   const [taskTitle, setTaskTitle] = useState("荒野专注任务");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [actualMinutes, setActualMinutes] = useState(0);
   const [status, setStatus] = useState("准备就绪");
+  const [lastSession, setLastSession] = useState(null);
 
   const elapsedLabel = useMemo(() => formatElapsed(elapsedSeconds), [elapsedSeconds]);
 
@@ -60,6 +63,16 @@ export default function TimerPage() {
             onFinish={({ actualMinutes: minutes }) => {
               setActualMinutes(minutes);
               setStatus("计时完成");
+              const session = recordTimerSession({
+                mode: "POMODORO",
+                taskTitle,
+                workMinutes: 25,
+                restMinutes: 5,
+                startedAt: Date.now() - minutes * 60 * 1000,
+                endedAt: Date.now(),
+                effectiveMinutes: minutes,
+              });
+              setLastSession(session);
             }}
           />
 
@@ -83,6 +96,11 @@ export default function TimerPage() {
             <div className="text-xs text-emerald-300">
               实际记录 {actualMinutes > 0 ? `${actualMinutes} 分钟` : "等待完成"}
             </div>
+            {lastSession && (
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-100">
+                已记录：{lastSession.taskTitle || "专注"} · {lastSession.effectiveMinutes} 分钟
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3 pt-2">
               <button
