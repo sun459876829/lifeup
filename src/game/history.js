@@ -1,4 +1,5 @@
 import { STAT_LIMITS } from "./config";
+import { safeLoad, safeSave } from "../lib/storage";
 
 export const HISTORY_STORAGE_KEY = "lifeup.history.v1";
 export const HISTORY_LIMIT = 200;
@@ -44,25 +45,14 @@ function clampStats(stats) {
 }
 
 export function loadHistory() {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
-    if (!raw) return [];
+  return safeLoad(HISTORY_STORAGE_KEY, [], (raw) => {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    console.error("Failed to load history", error);
-    return [];
-  }
+  });
 }
 
 export function saveHistory(history) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
-  } catch (error) {
-    console.error("Failed to save history", error);
-  }
+  safeSave(HISTORY_STORAGE_KEY, history);
 }
 
 export function pushHistory(entry, history) {

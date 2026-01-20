@@ -29,6 +29,7 @@ import {
   undoHistoryItem as undoHistoryItemAction,
 } from "../game/history";
 import { getDayIndex, getNow, getTodayKey } from "../game/time";
+import { safeLoad, safeSave } from "../lib/storage";
 
 const STORAGE_KEY = "lifeup.arcane.v4";
 const LEGACY_KEYS = ["lifeup.arcane.v3", "lifeup.world.v1", "lifeup.magicworld.v1"];
@@ -528,12 +529,8 @@ function migrateLegacyState(raw) {
 }
 
 function loadState() {
-  if (typeof window === "undefined") return createDefaultState();
-
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
+  const parsed = safeLoad(STORAGE_KEY, null);
+  if (parsed) {
       const world = { ...DEFAULT_WORLD, ...(parsed.world || {}) };
       return {
         ...createDefaultState(),
@@ -589,32 +586,23 @@ function loadState() {
         burst: normalizeBurst(parsed.burst),
         history: loadHistory(),
       };
-    }
+  }
 
-    for (const key of LEGACY_KEYS) {
-      const legacyRaw = localStorage.getItem(key);
-      if (legacyRaw) {
-        const legacyParsed = JSON.parse(legacyRaw);
-        const migrated = migrateLegacyState(legacyParsed);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
-        return migrated;
-      }
+  for (const key of LEGACY_KEYS) {
+    const legacyParsed = safeLoad(key, null);
+    if (legacyParsed) {
+      const migrated = migrateLegacyState(legacyParsed);
+      safeSave(STORAGE_KEY, migrated);
+      return migrated;
     }
-  } catch (error) {
-    console.error("Failed to load world state", error);
   }
 
   return createDefaultState();
 }
 
 function saveState(state) {
-  if (typeof window === "undefined") return;
-  try {
-    const { history, ...rest } = state || {};
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rest));
-  } catch (error) {
-    console.error("Failed to save world state", error);
-  }
+  const { history, ...rest } = state || {};
+  safeSave(STORAGE_KEY, rest);
 }
 
 function pickRandomEvent() {
@@ -922,7 +910,65 @@ function maybeTriggerTreasureMaps(state, taskContext) {
   return updatedState;
 }
 
-const WorldContext = createContext(null);
+const DEFAULT_CONTEXT_VALUE = (() => {
+  const base = createDefaultState();
+  const now = getNow();
+  return {
+    hydrated: false,
+    stats: base.stats,
+    world: base.world,
+    currency: base.currency,
+    exp: base.exp,
+    tickets: base.tickets,
+    tasks: base.tasks,
+    completedTasks: base.completedTasks,
+    taskConfig: TASK_CONFIG,
+    treasureMaps: base.treasureMaps,
+    claims: base.claims,
+    achievements: base.achievements,
+    attributes: base.attributes,
+    attributeHistory: base.attributeHistory,
+    notes: base.notes,
+    timerSessions: base.timerSessions,
+    settings: base.settings,
+    dailyBatchPlan: base.dailyBatchPlan,
+    burst: base.burst,
+    history: base.history,
+    changeStats: () => undefined,
+    now,
+    todayKey: getTodayKey(now),
+    dayIndex: getDayIndex(now),
+    refreshTime: () => ({ now, todayKey: getTodayKey(now), dayIndex: getDayIndex(now) }),
+    addCoins: () => undefined,
+    grantExp: () => undefined,
+    spendCoins: () => undefined,
+    exchangeCoinsForGameTicket: () => undefined,
+    useGameTicket: () => undefined,
+    registerTask: () => undefined,
+    completeTask: () => ({ ok: false }),
+    addNote: () => undefined,
+    deleteNote: () => undefined,
+    markNoteConverted: () => undefined,
+    recordTimerSession: () => undefined,
+    updateCoinsPerYuan: () => undefined,
+    addBatchPlan: () => undefined,
+    progressTreasureMaps: () => undefined,
+    addTreasureMap: () => undefined,
+    completeTreasureMap: () => ({ ok: false }),
+    addClaim: () => undefined,
+    useClaim: () => undefined,
+    pushHistory: () => undefined,
+    addHistory: () => undefined,
+    undoHistory: () => undefined,
+    undoHistoryItem: () => undefined,
+    undoLastAction: () => undefined,
+    unlockAchievement: () => undefined,
+    updateAchievementProgress: () => undefined,
+    removeTask: () => undefined,
+  };
+})();
+
+const WorldContext = createContext(DEFAULT_CONTEXT_VALUE);
 
 export function WorldProvider({ children }) {
   const [hydrated, setHydrated] = useState(false);
@@ -2056,9 +2102,5 @@ export function WorldProvider({ children }) {
 }
 
 export function useWorld() {
-  const context = useContext(WorldContext);
-  if (!context) {
-    throw new Error("useWorld must be used within WorldProvider");
-  }
-  return context;
+  return useContext(WorldContext);
 }

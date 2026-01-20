@@ -1,5 +1,7 @@
 const STORAGE_KEY = "lifeup.magicworld.v1";
 
+import { safeLoad, safeSave } from "./storage";
+
 export const PROJECTS = [
   { id: "ququ", name: "曲曲情感课" },
   { id: "xsz", name: "谢胜子课程" },
@@ -50,33 +52,21 @@ export function createDefaultState() {
 }
 
 export function safeLoadState() {
-  if (typeof window === "undefined") return createDefaultState();
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return createDefaultState();
-    const parsed = JSON.parse(raw);
+  const base = createDefaultState();
+  const parsed = safeLoad(STORAGE_KEY, null);
+  if (!parsed) return base;
 
-    const base = createDefaultState();
-
-    return {
-      ...base,
-      ...parsed,
-      gems: { ...base.gems, ...(parsed.gems || {}) },
-      projectProgress: { ...base.projectProgress, ...(parsed.projectProgress || {}) },
-      relics: Array.isArray(parsed.relics) ? parsed.relics : [],
-      tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
-      claims: Array.isArray(parsed.claims) ? parsed.claims : [],
-    };
-  } catch {
-    return createDefaultState();
-  }
+  return {
+    ...base,
+    ...parsed,
+    gems: { ...base.gems, ...(parsed.gems || {}) },
+    projectProgress: { ...base.projectProgress, ...(parsed.projectProgress || {}) },
+    relics: Array.isArray(parsed.relics) ? parsed.relics : [],
+    tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [],
+    claims: Array.isArray(parsed.claims) ? parsed.claims : [],
+  };
 }
 
 export function safeSaveState(state) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // ignore
-  }
+  safeSave(STORAGE_KEY, state);
 }

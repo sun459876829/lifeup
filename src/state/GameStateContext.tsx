@@ -10,6 +10,7 @@ import { computeReward } from "@/game/config/rewards";
 import { rollDice } from "@/game/engine/diceEngine";
 import { resolveTileEvent } from "@/game/engine/tileEventEngine";
 import { canAdvanceGameDay, getGameDayKey, getTodayKey, setGameDayKey } from "@/game/time";
+import { safeLoad, safeSave } from "@/lib/storage";
 
 const STORAGE_KEY = "lifeup.survival.v1";
 
@@ -124,7 +125,38 @@ type GameStateContextValue = {
   pushHistory: (entry: any) => void;
 };
 
-const GameStateContext = createContext<GameStateContextValue | null>(null);
+const DEFAULT_CONTEXT_VALUE: GameStateContextValue = {
+  hydrated: false,
+  coins: DEFAULT_STATE.coins,
+  exp: DEFAULT_STATE.exp,
+  resources: DEFAULT_STATE.resources,
+  inventory: DEFAULT_STATE.inventory,
+  tasks: DEFAULT_STATE.tasks,
+  taskStreaks: DEFAULT_STATE.taskStreaks,
+  board: DEFAULT_STATE.board,
+  player: DEFAULT_STATE.player,
+  npc: DEFAULT_STATE.npc,
+  tileEvents: DEFAULT_STATE.tileEvents,
+  dailyDrop: DEFAULT_STATE.dailyDrop,
+  worldTime: DEFAULT_STATE.worldTime,
+  buildState: DEFAULT_STATE.buildState,
+  monopolyRoll: DEFAULT_STATE.monopolyRoll,
+  spawnTaskInstance: () => null,
+  completeTaskInstance: () => ({ ok: false }),
+  registerTaskTemplates: () => undefined,
+  claimDailyDrop: () => false,
+  addCoins: () => undefined,
+  advanceWorldDay: () => undefined,
+  movePlayer: () => undefined,
+  recordMonopolyRoll: () => undefined,
+  canCraft: () => false,
+  craft: () => false,
+  placeStructure: () => false,
+  useItem: () => false,
+  pushHistory: () => undefined,
+};
+
+const GameStateContext = createContext<GameStateContextValue>(DEFAULT_CONTEXT_VALUE);
 
 function newId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -134,43 +166,32 @@ function newId() {
 }
 
 function loadState(): GameState {
-  if (typeof window === "undefined") return { ...DEFAULT_STATE };
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return { ...DEFAULT_STATE };
-    const parsed = JSON.parse(stored);
-    return {
-      ...DEFAULT_STATE,
-      ...parsed,
-      resources: { ...DEFAULT_RESOURCES, ...(parsed.resources || {}) },
-      inventory: { ...(parsed.inventory || {}) },
-      tasks: {
-        templates: { ...TASK_TEMPLATES, ...(parsed.tasks?.templates || {}) },
-        active: Array.isArray(parsed.tasks?.active) ? parsed.tasks.active : [],
-      },
-      taskStreaks: parsed.taskStreaks || {},
-      board: parsed.board || { tiles: BOARD_TILES },
-      player: parsed.player || { position: 0, laps: 0 },
-      npc: parsed.npc || { position: 0, laps: 0 },
-      tileEvents: Array.isArray(parsed.tileEvents) ? parsed.tileEvents : [],
-      dailyDrop: parsed.dailyDrop || DEFAULT_STATE.dailyDrop,
-      worldTime: parsed.worldTime || DEFAULT_STATE.worldTime,
-      buildState: parsed.buildState || DEFAULT_STATE.buildState,
-      history: Array.isArray(parsed.history) ? parsed.history : [],
-      monopolyRoll: parsed.monopolyRoll || DEFAULT_STATE.monopolyRoll,
-    };
-  } catch {
-    return { ...DEFAULT_STATE };
-  }
+  const parsed = safeLoad<GameState | null>(STORAGE_KEY, null);
+  if (!parsed) return { ...DEFAULT_STATE };
+  return {
+    ...DEFAULT_STATE,
+    ...parsed,
+    resources: { ...DEFAULT_RESOURCES, ...(parsed.resources || {}) },
+    inventory: { ...(parsed.inventory || {}) },
+    tasks: {
+      templates: { ...TASK_TEMPLATES, ...(parsed.tasks?.templates || {}) },
+      active: Array.isArray(parsed.tasks?.active) ? parsed.tasks.active : [],
+    },
+    taskStreaks: parsed.taskStreaks || {},
+    board: parsed.board || { tiles: BOARD_TILES },
+    player: parsed.player || { position: 0, laps: 0 },
+    npc: parsed.npc || { position: 0, laps: 0 },
+    tileEvents: Array.isArray(parsed.tileEvents) ? parsed.tileEvents : [],
+    dailyDrop: parsed.dailyDrop || DEFAULT_STATE.dailyDrop,
+    worldTime: parsed.worldTime || DEFAULT_STATE.worldTime,
+    buildState: parsed.buildState || DEFAULT_STATE.buildState,
+    history: Array.isArray(parsed.history) ? parsed.history : [],
+    monopolyRoll: parsed.monopolyRoll || DEFAULT_STATE.monopolyRoll,
+  };
 }
 
 function saveState(state: GameState) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // ignore
-  }
+  safeSave(STORAGE_KEY, state);
 }
 
 function applyResourceChanges(base: Record<string, number>, changes?: Record<string, number>) {
@@ -395,18 +416,23 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const advanceWorldDay = useCallback(() => {
-    const now = Date.now();
-    if (!canAdvanceGameDay()) return;
-    const nextKey = setGameDayKey(getTodayKey());
-    setState((prev) => ({
-      ...prev,
-      worldTime: {
-        currentDay: (prev.worldTime?.currentDay || 1) + 1,
-        lastAdvanceAt: now,
-        gameDayKey: nextKey,
-      },
-      dailyDrop: refreshDailyDrop(prev),
-    }));
+    setState((prev) => {
+      const now = Date.now();
+      if (!canAdvanceGameDay()) return prev;
+      if (prev.worldTime?.lastAdvanceAt && now - prev.worldTime.lastAdvanceAt < 1000) {
+        return prev;
+      }
+      const nextKey = setGameDayKey(getTodayKey());
+      return {
+        ...prev,
+        worldTime: {
+          currentDay: (prev.worldTime?.currentDay || 1) + 1,
+          lastAdvanceAt: now,
+          gameDayKey: nextKey,
+        },
+        dailyDrop: refreshDailyDrop(prev),
+      };
+    });
   }, []);
 
   const movePlayer = useCallback((steps: number) => {
@@ -569,9 +595,5 @@ export function GameStateProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useGameState() {
-  const ctx = useContext(GameStateContext);
-  if (!ctx) {
-    throw new Error("useGameState must be used within GameStateProvider");
-  }
-  return ctx;
+  return useContext(GameStateContext);
 }
