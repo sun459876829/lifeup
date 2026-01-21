@@ -1,14 +1,38 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useWorld } from "../worldState";
+import { ITEMS } from "@/game/config/items";
 
 const GAME_TICKET_COST = 50;
+
+const REAL_REWARDS = [
+  {
+    id: "movie-night",
+    title: "看一场电影",
+    description: "用仪式感奖励自己一段放松时光。",
+    price: 120,
+    stock: "每周 1 次",
+  },
+  {
+    id: "coffee-break",
+    title: "咖啡时刻",
+    description: "补充能量与好心情。",
+    price: 45,
+    stock: "每日 1 次",
+  },
+];
+
+const IN_APP_REWARD_IDS = ["gameTicket", "energyDrink", "focusBuff30m"];
 
 export default function ShopPage() {
   const { hydrated, currency, tickets, settings, exchangeCoinsForGameTicket, useGameTicket } = useWorld();
   const [message, setMessage] = useState("");
   const lastClickRef = useRef({});
+  const appRewards = useMemo(
+    () => IN_APP_REWARD_IDS.map((id) => ITEMS[id]).filter(Boolean),
+    []
+  );
 
   function handleExchange() {
     const now = Date.now();
@@ -75,7 +99,7 @@ export default function ShopPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-5">
+      <div className="rounded-2xl border border-white/5 bg-gradient-to-br from-slate-900/80 to-slate-950/90 p-6 space-y-5">
         <h2 className="text-sm font-medium text-slate-100">🎮 游戏券兑换</h2>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="rounded-xl border border-slate-700 bg-slate-950/50 p-4 space-y-3">
@@ -116,6 +140,48 @@ export default function ShopPage() {
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <section className="rounded-2xl border border-white/5 bg-slate-950/70 p-6 space-y-4">
+          <div className="text-sm font-medium text-slate-100">🎁 现实奖励</div>
+          <div className="space-y-3 text-xs text-slate-400">
+            {REAL_REWARDS.map((reward) => (
+              <div
+                key={reward.id}
+                className="rounded-xl border border-slate-800 bg-slate-900/40 p-4"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-slate-200">{reward.title}</div>
+                  <div className="text-sm text-emerald-200">{reward.price}🪙</div>
+                </div>
+                <div className="mt-2 text-xs text-slate-500">{reward.description}</div>
+                <div className="mt-2 text-[10px] text-slate-500">限购：{reward.stock}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-white/5 bg-slate-950/70 p-6 space-y-4">
+          <div className="text-sm font-medium text-slate-100">✨ 应用内奖励</div>
+          <div className="space-y-3 text-xs text-slate-400">
+            {appRewards.map((reward) => (
+              <div
+                key={reward.id}
+                className="rounded-xl border border-slate-800 bg-slate-900/40 p-4"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-slate-200">
+                    {reward.icon || "🎲"} {reward.name}
+                  </div>
+                  <div className="text-xs text-emerald-200">冒险道具</div>
+                </div>
+                <div className="mt-2 text-xs text-slate-500">{reward.description}</div>
+                <div className="mt-2 text-[10px] text-slate-500">可立即使用</div>
+              </div>
+            ))}
+          </div>
+        </section>
       </div>
     </div>
   );

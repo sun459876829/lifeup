@@ -47,91 +47,89 @@ export default function TimerPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 px-6 py-10">
-      <div className="mx-auto max-w-4xl space-y-6">
-        <header className="space-y-2">
-          <div className="text-xs tracking-[0.35em] uppercase text-violet-200/60">Arcane Timer</div>
-          <h1 className="text-3xl font-semibold text-slate-100">魔法计时仪</h1>
-          <p className="text-sm text-slate-400">聚焦你的任务节奏，记录实际投入时间。</p>
-        </header>
+    <div className="space-y-6">
+      <header className="space-y-2">
+        <div className="text-xs tracking-[0.35em] uppercase text-violet-200/60">Arcane Timer</div>
+        <h1 className="text-3xl font-semibold text-slate-100">魔法计时仪</h1>
+        <p className="text-sm text-slate-400">聚焦你的任务节奏，记录实际投入时间。</p>
+      </header>
 
-        <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <TimerRing
-            ref={timerRef}
-            title="荒野魔法时钟"
-            onTick={({ elapsedSeconds: nextElapsed }) => setElapsedSeconds(nextElapsed)}
-            onFinish={({ actualMinutes: minutes }) => {
-              setActualMinutes(minutes);
-              setStatus("计时完成");
-              const session = recordTimerSession({
-                mode: "POMODORO",
-                taskTitle,
-                workMinutes: 25,
-                restMinutes: 5,
-                startedAt: Date.now() - minutes * 60 * 1000,
-                endedAt: Date.now(),
-                effectiveMinutes: minutes,
-              });
-              setLastSession(session);
-            }}
-          />
+      <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+        <TimerRing
+          ref={timerRef}
+          title="荒野魔法时钟"
+          onTick={({ elapsedSeconds: nextElapsed }) => setElapsedSeconds(nextElapsed)}
+          onFinish={({ actualMinutes: minutes }) => {
+            setActualMinutes(minutes);
+            setStatus("计时完成");
+            const session = recordTimerSession({
+              mode: "POMODORO",
+              taskTitle,
+              workMinutes: 25,
+              restMinutes: 5,
+              startedAt: Date.now() - minutes * 60 * 1000,
+              endedAt: Date.now(),
+              effectiveMinutes: minutes,
+            });
+            setLastSession(session);
+          }}
+        />
 
-          <div className="rounded-2xl border border-violet-500/20 bg-slate-950/70 p-6 shadow-[0_0_25px_rgba(124,58,237,0.25)] space-y-4">
-            <div className="space-y-2">
-              <div className="text-xs uppercase tracking-[0.3em] text-violet-200/70">当前任务</div>
-              <input
-                value={taskTitle}
-                onChange={(event) => setTaskTitle(event.target.value)}
-                className="w-full rounded-lg border border-violet-500/20 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
-              />
+        <div className="rounded-2xl border border-white/5 bg-slate-950/70 p-6 shadow-[0_0_25px_rgba(124,58,237,0.25)] space-y-4">
+          <div className="space-y-2">
+            <div className="text-xs uppercase tracking-[0.3em] text-violet-200/70">当前任务</div>
+            <input
+              value={taskTitle}
+              onChange={(event) => setTaskTitle(event.target.value)}
+              className="w-full rounded-lg border border-violet-500/20 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+            />
+          </div>
+          <div className="space-y-1">
+            <div className="text-xs text-slate-400">状态</div>
+            <div className="text-lg text-violet-200">{status}</div>
+          </div>
+          <div className="space-y-1">
+            <div className="text-xs text-slate-400">已用时间</div>
+            <div className="text-2xl font-semibold text-slate-100">{elapsedLabel}</div>
+          </div>
+          <div className="text-xs text-emerald-300">
+            实际记录 {actualMinutes > 0 ? `${actualMinutes} 分钟` : "等待完成"}
+          </div>
+          {lastSession && (
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-100">
+              已记录：{lastSession.taskTitle || "专注"} · {lastSession.effectiveMinutes} 分钟
             </div>
-            <div className="space-y-1">
-              <div className="text-xs text-slate-400">状态</div>
-              <div className="text-lg text-violet-200">{status}</div>
-            </div>
-            <div className="space-y-1">
-              <div className="text-xs text-slate-400">已用时间</div>
-              <div className="text-2xl font-semibold text-slate-100">{elapsedLabel}</div>
-            </div>
-            <div className="text-xs text-emerald-300">
-              实际记录 {actualMinutes > 0 ? `${actualMinutes} 分钟` : "等待完成"}
-            </div>
-            {lastSession && (
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-100">
-                已记录：{lastSession.taskTitle || "专注"} · {lastSession.effectiveMinutes} 分钟
-              </div>
-            )}
+          )}
 
-            <div className="grid grid-cols-2 gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handleStart}
-                className="rounded-lg bg-violet-500/90 py-2 text-sm font-medium text-white shadow-lg shadow-violet-500/30 transition hover:bg-violet-500"
-              >
-                开始计时
-              </button>
-              <button
-                type="button"
-                onClick={handlePause}
-                className="rounded-lg bg-slate-800 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-700"
-              >
-                暂停
-              </button>
-              <button
-                type="button"
-                onClick={handleResume}
-                className="rounded-lg bg-emerald-500/90 py-2 text-sm font-medium text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-500"
-              >
-                继续
-              </button>
-              <button
-                type="button"
-                onClick={handleStop}
-                className="rounded-lg bg-rose-500/90 py-2 text-sm font-medium text-white shadow-lg shadow-rose-500/30 transition hover:bg-rose-500"
-              >
-                结束
-              </button>
-            </div>
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            <button
+              type="button"
+              onClick={handleStart}
+              className="rounded-lg bg-violet-500/90 py-2 text-sm font-medium text-white shadow-lg shadow-violet-500/30 transition hover:bg-violet-500"
+            >
+              开始计时
+            </button>
+            <button
+              type="button"
+              onClick={handlePause}
+              className="rounded-lg bg-slate-800 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-700"
+            >
+              暂停
+            </button>
+            <button
+              type="button"
+              onClick={handleResume}
+              className="rounded-lg bg-emerald-500/90 py-2 text-sm font-medium text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-500"
+            >
+              继续
+            </button>
+            <button
+              type="button"
+              onClick={handleStop}
+              className="rounded-lg bg-rose-500/90 py-2 text-sm font-medium text-white shadow-lg shadow-rose-500/30 transition hover:bg-rose-500"
+            >
+              结束
+            </button>
           </div>
         </div>
       </div>

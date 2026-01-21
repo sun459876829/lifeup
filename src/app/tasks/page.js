@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useGameState } from "@/state/GameStateContext";
 import { useWorld } from "../worldState";
 import { computeReward, estimateRewardRange } from "@/game/config/rewards";
@@ -37,6 +38,13 @@ const RESOURCE_ICONS = {
   languageRune: "📘",
   soulShard: "✨",
 };
+
+const TAB_OPTIONS = [
+  { id: "today", label: "今日任务" },
+  { id: "repeat", label: "重复任务" },
+  { id: "endless", label: "无限任务" },
+  { id: "done", label: "已完成" },
+];
 
 function formatTileEventReward(result) {
   if (!result) return "";
@@ -77,6 +85,13 @@ function formatRange(minValue, maxValue) {
 function formatMinutes(value) {
   if (!value) return "-";
   return `${value} 分钟`;
+}
+
+function extractTags(title = "", tags = []) {
+  const matches = Array.from(title.matchAll(/#([\\p{L}\\p{N}_-]+)/gu)).map((match) => match[1]);
+  const cleanTitle = title.replace(/#[\\p{L}\\p{N}_-]+/gu, "").trim();
+  const merged = Array.from(new Set([...(tags || []), ...matches])).filter(Boolean);
+  return { cleanTitle: cleanTitle || title, tags: merged };
 }
 
 function resolveCategoryLabel(category) {
@@ -129,11 +144,20 @@ export default function TasksPage() {
   const [quickTitle, setQuickTitle] = useState("");
   const [randomPick, setRandomPick] = useState(null);
   const [batchMode, setBatchMode] = useState("category");
+  const searchParams = useSearchParams();
+  const [taskTab, setTaskTab] = useState(() => searchParams.get("tab") || "today");
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    const nextTab = searchParams.get("tab");
+    if (nextTab && TAB_OPTIONS.some((tab) => tab.id === nextTab)) {
+      setTaskTab(nextTab);
+    }
+  }, [searchParams]);
 
   const templates = useMemo(() => Object.values(tasks.templates || {}), [tasks.templates]);
 
@@ -169,6 +193,17 @@ export default function TasksPage() {
     () => (coreTasks || []).filter((task) => task.status === "done"),
     [coreTasks]
   );
+
+  const filteredCoreTasks = useMemo(() => {
+    if (taskTab === "done") return coreDoneTasks;
+    if (taskTab === "repeat") {
+      return coreTodoTasks.filter((task) => task.isRepeatable || task.type === "REPEATABLE");
+    }
+    if (taskTab === "endless") {
+      return coreTodoTasks.filter((task) => task.type === "HABIT");
+    }
+    return coreTodoTasks;
+  }, [coreDoneTasks, coreTodoTasks, taskTab]);
 
   const batchGroups = useMemo(() => {
     const groups = {};
@@ -452,50 +487,83 @@ export default function TasksPage() {
             )}
 
             <div className="space-y-2">
-              <div className="text-xs text-slate-400">待办任务</div>
-              {coreTodoTasks.length === 0 ? (
-                <div className="text-sm text-slate-500">暂无待办任务。</div>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                {TAB_OPTIONS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setTaskTab(tab.id)}
+                    className={`rounded-full border px-3 py-1 transition ${
+                      taskTab === tab.id
+                        ? "border-emerald-400/60 bg-emerald-500/20 text-emerald-200"
+                        : "border-slate-700 bg-slate-900/40 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              {filteredCoreTasks.length === 0 ? (
+                <div className="text-sm text-slate-500">当前筛选下没有任务。</div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {coreTodoTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 space-y-2"
-                    >
-                      <div className="text-sm text-slate-200">{task.title}</div>
-                      <div className="text-xs text-slate-500">
-                        {task.category} · {task.priority || "FAST"} · {task.size || "SMALL"}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleCompleteCoreTask(task)}
-                        className="w-full rounded-lg bg-emerald-500/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+                  {filteredCoreTasks.map((task) => {
+                    const { cleanTitle, tags } = extractTags(task.title, task.tags);
+                    return (
+                      <div
+                        key={task.id}
+                        className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 space-y-2"
                       >
-                        完成任务
-                      </button>
-                    </div>
-                  ))}
+                        <div className="text-sm text-slate-200">{cleanTitle}</div>
+                        <div className="text-xs text-slate-500">
+                          {task.category} · {task.priority || "FAST"} · {task.size || "SMALL"}
+                        </div>
+                        {tags.length > 0 && (
+                          <div className="flex flex-wrap gap-2 text-[10px] text-emerald-200">
+                            {tags.map((tag) => (
+                              <span
+                                key={tag}
+                                className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5"
+                              >
+                                #{tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {task.status !== "done" && (
+                          <button
+                            type="button"
+                            onClick={() => handleCompleteCoreTask(task)}
+                            className="w-full rounded-lg bg-emerald-500/80 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+                          >
+                            完成任务
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
 
-            <div className="space-y-2">
-              <div className="text-xs text-slate-400">已完成</div>
-              {coreDoneTasks.length === 0 ? (
-                <div className="text-sm text-slate-500">还没有完成记录。</div>
-              ) : (
+            {taskTab !== "done" && coreDoneTasks.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs text-slate-400">近期已完成</div>
                 <div className="flex flex-wrap gap-2 text-xs text-slate-400">
-                  {coreDoneTasks.slice(0, 8).map((task) => (
-                    <span
-                      key={task.id}
-                      className="rounded-full border border-slate-700 bg-slate-900/60 px-2 py-0.5"
-                    >
-                      {task.title}
-                    </span>
-                  ))}
+                  {coreDoneTasks.slice(0, 8).map((task) => {
+                    const { cleanTitle } = extractTags(task.title, task.tags);
+                    return (
+                      <span
+                        key={task.id}
+                        className="rounded-full border border-slate-700 bg-slate-900/60 px-2 py-0.5"
+                      >
+                        {cleanTitle}
+                      </span>
+                    );
+                  })}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         )}
       </section>
