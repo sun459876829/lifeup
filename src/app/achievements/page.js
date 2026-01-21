@@ -43,7 +43,7 @@ export default function AchievementsPage() {
             className={`rounded-2xl border p-5 space-y-2 ${
               achievement.unlocked
                 ? "border-emerald-500/40 bg-emerald-500/10"
-                : "border-slate-800 bg-slate-950/70"
+                : "border-white/5 bg-slate-950/70"
             }`}
           >
             <div className="flex items-center justify-between">

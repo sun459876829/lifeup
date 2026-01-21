@@ -82,7 +82,7 @@ export default function NotesPage() {
         </div>
       )}
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4">
+      <section className="rounded-2xl border border-white/5 bg-slate-950/70 p-6 space-y-4">
         <div className="text-sm font-medium text-slate-100">暂存一个想法</div>
         <div className="flex flex-col md:flex-row gap-3">
           <input
@@ -101,7 +101,7 @@ export default function NotesPage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4">
+      <section className="rounded-2xl border border-white/5 bg-slate-950/70 p-6 space-y-4">
         <div className="text-sm font-medium text-slate-100">想法池</div>
         {notes.filter((note) => note.kind === "IDEA").length === 0 ? (
           <div className="text-sm text-slate-500">暂时没有想法，随时可以添加。</div>
@@ -144,19 +144,20 @@ export default function NotesPage() {
         )}
       </section>
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-950/70 p-6 space-y-4">
+      <section className="rounded-2xl border border-white/5 bg-slate-950/70 p-6 space-y-4">
         <div className="text-sm font-medium text-slate-100">任务感想</div>
         {notes.filter((note) => note.kind === "REFLECTION").length === 0 ? (
           <div className="text-sm text-slate-500">还没有记录感想，完成任务后可以添加一句话。</div>
         ) : (
-          <div className="space-y-2 text-sm text-slate-200">
+          <div className="space-y-4 text-sm text-slate-200 border-l border-slate-800 pl-4">
             {notes
               .filter((note) => note.kind === "REFLECTION")
               .map((note) => (
                 <div
                   key={note.id}
-                  className="rounded-xl border border-slate-800 bg-slate-900/40 p-3"
+                  className="relative rounded-xl border border-slate-800 bg-slate-900/40 p-3"
                 >
+                  <span className="absolute -left-6 top-4 h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
                   <div>{note.text}</div>
                   <div className="text-xs text-slate-500 mt-1">
                     {new Date(note.createdAt).toLocaleString("zh-CN")}

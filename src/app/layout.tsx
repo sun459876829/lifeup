@@ -1,8 +1,10 @@
 import "./globals.css";
+import AppProviders from "@/components/AppProviders";
+import TopNavigation from "@/components/TopNavigation";
 
 export const metadata = {
-  title: "LifeUP · 调试版",
-  description: "临时调试：先保证能正常打开首页",
+  title: "LifeUP · Arcane Dashboard",
+  description: "人生养成任务游戏化仪表盘",
 };
 
 export default function RootLayout({
@@ -12,17 +14,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body
-        style={{
-          margin: 0,
-          padding: 0,
-          background:
-            "radial-gradient(circle at top, #1b1030 0, #050608 55%, #020308 100%)",
-          color: "#f5f5f5",
-          fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-        }}
-      >
-        {children}
+      <body className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-black text-slate-50">
+        <AppProviders>
+          <div className="min-h-screen">
+            <TopNavigation />
+            <main className="mx-auto w-full max-w-6xl px-4 pb-16 pt-6">{children}</main>
+          </div>
+        </AppProviders>
       </body>
     </html>
   );

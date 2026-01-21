@@ -54,7 +54,7 @@ export default function AttributesPage() {
           return (
             <div
               key={attribute.id}
-              className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5 space-y-3"
+              className="rounded-2xl border border-white/5 bg-slate-950/70 p-5 space-y-3 shadow-lg"
             >
               <div className="flex items-center justify-between">
                 <div className="text-sm font-medium text-slate-200">
